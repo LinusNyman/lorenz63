@@ -1,0 +1,129 @@
+{
+  "known": {
+    "C_plus": [
+      8.485280990600586,
+      8.485280990600586,
+      27.0
+    ],
+    "divergence": -13.666666666666666,
+    "rho_hopf": 24.736842105263154,
+    "symmetry_residual": 0.0,
+    "eigs": {
+      "origin": [
+        "(-22.827722549438477+0j)",
+        "(11.827723503112793+0j)",
+        "(-2.6666667461395264+0j)"
+      ],
+      "C+": [
+        "(-13.854578018188477+0j)",
+        "(0.09395552426576614+10.194504737854004j)",
+        "(0.09395552426576614-10.194504737854004j)"
+      ]
+    },
+    "spectrum": [
+      0.9091206177244279,
+      -0.006057458398419624,
+      -14.578612622030377
+    ],
+    "spectrum_sum": -13.67554946270437,
+    "kaplan_yorke": 2.06194438268847,
+    "lorenz_map_peaks": 534,
+    "lorenz_map_min_slope": 1.1544718624879238,
+    "divergence_measured": -13.666667938232422,
+    "divergence_measured_max_dev": 0.0
+  },
+  "lambda_true": 0.8973577897958451,
+  "lambda_true_sd": 0.023270825770205904,
+  "datasets": {
+    "ode": {
+      "key": "ode",
+      "kind": "ode",
+      "b": 0.0,
+      "dt": 0.025,
+      "attractor_scale": 13.98315143585205,
+      "attractor_scale_long": 14.761869430541992,
+      "lambda_true": 0.8973577897958451,
+      "floor_steps": 362,
+      "euler_bar_steps": 32,
+      "truth_climate": 0.6204979634199025,
+      "truth_climate_lo": 0.5581686348171744,
+      "truth_climate_hi": 1.8859019336584677,
+      "truth_climate_draws": [
+        0.9218623485039538,
+        0.5616411680923611,
+        0.6204979634199025,
+        1.8859019336584677,
+        0.5581686348171744
+      ],
+      "climate_ref_w1": 0.06825898794146876,
+      "climate_ref_sd": 0.03485979158533571,
+      "truth_alive": 1.0,
+      "truth_lobe": 0.6308102607727051,
+      "truth_spread": NaN,
+      "spread_lead": -1,
+      "conditional_width": 0.0,
+      "conditional_width_pct": 0.0
+    },
+    "sde": {
+      "key": "sde",
+      "kind": "sde",
+      "b": 0.6,
+      "dt": 0.025,
+      "attractor_scale": 15.828483581542969,
+      "attractor_scale_long": 15.819092750549316,
+      "lambda_true": 0.8973577897958451,
+      "floor_steps": 23,
+      "euler_bar_steps": 26,
+      "truth_climate": 0.6585596618027018,
+      "truth_climate_lo": 0.569809861120429,
+      "truth_climate_hi": 1.000025030801644,
+      "truth_climate_draws": [
+        0.6585596618027018,
+        0.6069129683539116,
+        0.569809861120429,
+        0.7826680275424854,
+        1.000025030801644
+      ],
+      "climate_ref_w1": 0.05015449870067338,
+      "climate_ref_sd": 0.026320611291167133,
+      "truth_alive": 1.0,
+      "truth_lobe": 0.8357174396514893,
+      "truth_spread": 1.0221710205078125,
+      "spread_lead": 12,
+      "conditional_width": 2.611227512359619,
+      "conditional_width_pct": 16.497016273905597
+    },
+    "sde015": {
+      "key": "sde015",
+      "kind": "sde",
+      "b": 0.15,
+      "dt": 0.025,
+      "attractor_scale": 14.414719581604004,
+      "attractor_scale_long": 14.50564956665039,
+      "lambda_true": 0.8973577897958451,
+      "floor_steps": 104,
+      "euler_bar_steps": 29,
+      "truth_climate": 1.0106325785239922,
+      "truth_climate_lo": 0.7831115959250271,
+      "truth_climate_hi": 1.4197647566976748,
+      "truth_climate_draws": [
+        1.2037570745343737,
+        0.9766344622878368,
+        1.4197647566976748,
+        0.7831115959250271,
+        1.0106325785239922
+      ],
+      "climate_ref_w1": 0.09369870945811272,
+      "climate_ref_sd": 0.05585270227985519,
+      "truth_alive": 1.0,
+      "truth_lobe": 0.5468833446502686,
+      "truth_spread": 1.0370204448699951,
+      "spread_lead": 37,
+      "conditional_width": 0.6364251375198364,
+      "conditional_width_pct": 4.415105919452218
+    }
+  },
+  "eval_steps": 890,
+  "long_steps": 20000,
+  "n_long": 32
+}

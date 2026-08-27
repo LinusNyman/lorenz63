@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+
+# Datasets and checkpoints are regenerable from their seeds, and ground_truth.pt is 154 MB,
+# past GitHub's file size limit. The two JSON summaries are tracked: poster/poster_final.typ
+# reads every number it prints from artifacts/summary.json, so a clone without it cannot
+# build the poster.
+artifacts/*
+!artifacts/summary.json
+!artifacts/ground_truth.json
+
+# Working files, kept out of the repository.
+slides/
+poster/README.md
+poster/poster_brief.md

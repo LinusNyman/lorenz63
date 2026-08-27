@@ -1,0 +1,10 @@
+torch
+numpy
+matplotlib
+tqdm
+nbformat
+
+# Only to execute the notebooks in place:
+#   PYTHONPATH=. .venv/bin/python -m nbconvert --to notebook --execute --inplace notebooks/*.ipynb
+nbconvert
+ipykernel
