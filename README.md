@@ -121,10 +121,14 @@ Within a topic the letter always means the same thing:
 There is no `e`: the rulers go into a table rather than a bar chart, because a table carries
 the across-seed range and a bar chart of medians does not.
 
-⚠️ **A suffixed topic collides with a letter.** `06f_lorenz_map_ode.png` is topic **06**'s
-Lorenz map; `06ff_lorenz_map_ode.png` is topic **06f**'s. Glob on the full `<topic>_<letter>`
-prefix, never on `06f*`. Every figure name also carries its dataset key, so one topic has up to
-three of each: `02d_error_ode.png`, `02d_error_sde.png`, `02d_error_sde015.png`.
+A figure is named `<topic><letter>_<name>_<dataset>.png`, with no separator between the topic
+and the letter. Every name carries its dataset key, so one topic has up to three of each:
+`02d_error_ode.png`, `02d_error_sde.png`, `02d_error_sde015.png`.
+
+⚠️ **Two topics end in a letter, so a prefix can be read two ways.** `06f_lorenz_map_ode.png`
+is topic **06** with letter `f`; `06fd_error_ode.png` is topic **06f** with letter `d`. No two
+figures share a filename, but `06f*` matches both topics: match topics 05 and 06 on the letter
+that follows (`06[abcdf]_`), and topics 05t and 06f on the letter after that (`06f[abcdf]_`).
 
 ```
 l63/          the shared package — seven files, one job each

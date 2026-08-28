@@ -12,9 +12,11 @@ There is no `e`: the four rulers are reported as a table rather than a figure, b
 can carry the across-seed range and a bar chart of medians cannot. `ruler_figure` below still
 draws the bar chart for notebook use.
 
-`04d_error.png` is the lead-time model's error curve. A suffixed topic collides with a
-letter: `06f_lorenz_map` is topic 06's Lorenz map while `06ff_lorenz_map` is topic 06f's, so
-glob on the full `<topic>_<letter>` prefix, never on `06f*`.
+A figure is named `<topic><letter>_<name>_<dataset>.png`, with no separator between the topic
+and the letter, so `04d_error.png` is the lead-time model's error curve. Two topics end in a
+letter themselves: `06f_lorenz_map` is topic 06 with letter `f`, while `06fd_error` is topic
+06f with letter `d`. No two figures share a filename, but `06f*` matches both topics; match
+topics 05 and 06 on the letter that follows, and 05t and 06f on the letter after that.
 
 Rule: red means the model. Grey means a reference. Nothing else is red.
 """
