@@ -8,13 +8,12 @@ loses at most the jobs in flight.
     artifacts/results/<name>.json   one row of the head-to-head table
 
 `--score-only` re-runs the rulers against the checkpoints already on disk without touching a
-weight. That is the mode to use when a ruler changes: re-scoring 124 models costs a fraction
-of retraining them, and it keeps the change to the measurement provably separate from any
-change to the models.
+weight. Use it when a ruler changes: re-scoring 124 models costs a fraction of retraining
+them, and it keeps a change to the measurement separate from any change to the models.
 
-Same training budget for every model -- the comparison is loss-against-loss, not
-tuning-against-tuning. Where that is unfair to a model, its notebook says so. It is a budget
-in ITERATIONS only: the transformer carries 100k parameters against the MLP's 17k, so it is a
+Every model gets the same training budget, so the comparison is loss against loss rather than
+tuning against tuning. Where that is unfair to a model, its notebook says so. The budget is in
+iterations only: the transformer carries 100k parameters against the MLP's 17k, so this is a
 control on architecture and not a matched-capacity comparison.
 
 Run:  PYTHONPATH=. python run/train_all.py     [--only 03] [--data sde015] [--workers 6]
@@ -47,8 +46,8 @@ N_ITERS = 3000
 ACTS = {'SiLU': nn.SiLU, 'Tanh': nn.Tanh, 'ReLU': nn.ReLU}
 
 # Dataset keys, defined in run/ground_truth.py. `ode` and `sde` get the whole ladder; the
-# starter's noise level gets the four rungs that answer whether it was wide enough to run on
-# at all -- the two extremes of the deterministic side and both probabilistic rungs.
+# starter's noise level gets four rungs, the two extremes of the deterministic side and both
+# probabilistic ones, which is what it takes to tell whether that width separates them.
 FULL = ('ode', 'sde')
 NARROW = 'sde015'
 NARROW_MODELS = ('02', '03', '06', '06f')
@@ -85,15 +84,14 @@ def matrix() -> list[Job]:
                 if not narrow or topic in NARROW_MODELS:
                     jobs.append(Job(topic, *a, **kw))
 
-            # AR arms -- the same nets, trained through the COMPOSED map instead of on true
-            # states only. Deterministic rungs only: 02's AR counterpart already exists as
-            # topic 03, and 06 is trained per-step on purpose (see GaussianPredictor's
-            # docstring -- unrolling an MSE through a sampled chain collapses its sigma head).
-            # k = 4 for both -- topic 03's own five-seed sweep is what puts the optimum there,
-            # and holding k equal across the rungs is what lets the poster read them side by
-            # side. Neither rung is in NARROW_MODELS, so `add` drops these on sde015 itself.
-            # Both unroll from EVERY valid start, as `RolloutPredictor` does; see
-            # `RecurrentPredictor.ar_loss` for why that is the fairness condition.
+            # AR arms: the same nets, trained through the composed map instead of on true
+            # states only. Deterministic rungs only. 02's AR counterpart already exists as
+            # topic 03, and 06 is trained per step (see GaussianPredictor's docstring:
+            # unrolling an MSE through a sampled chain collapses its sigma head).
+            # k = 4 for both, from topic 03's own five-seed sweep, and held equal across the
+            # rungs so the poster can read them side by side. Neither rung is in NARROW_MODELS,
+            # so `add` drops these on sde015. Both unroll from every valid start, as
+            # `RolloutPredictor` does; `RecurrentPredictor.ar_loss` gives the reason.
             add('05', 'lstm_ar4', 'RecurrentPredictor', data, seed,
                 dict(cell='lstm', ar=True, k=4))
             add('04', 'leadtime_ar4', 'LeadTimePredictor', data, seed, dict(ar=True, k=4))
@@ -110,9 +108,9 @@ def matrix() -> list[Job]:
             add('04', 'leadtime', 'LeadTimePredictor', data, seed)
             add('02', 'mlp', 'Predictor', data, seed)
 
-        # architecture sweep: one seed. Its held-out loss column is the interpretable one,
-        # not its horizon -- the across-seed spread of a single configuration covers most of
-        # the horizon column's range.
+        # architecture sweep: one seed. Its held-out loss column is the interpretable one; its
+        # horizon is not, because the across-seed spread of a single configuration covers most
+        # of that column's range.
         if not narrow:
             for w in (32, 64, 256):
                 jobs.append(Job('02s', f'width{w}', 'Predictor', data, 0, dict(hidden_dim=w)))
@@ -132,8 +130,8 @@ def build(job: Job) -> ForecastModel:
 
 
 def rulers(m: ForecastModel, d, gt: dict, curves: dict, key: str) -> dict:
-    """All four rulers plus the gate. Identical code for every model, called once per model
-    -- twice for the sampled rungs, whose controlled test needs the same weights both ways.
+    """All four rulers plus the gate. Identical code for every model, called once per model,
+    and twice for the sampled rungs, whose controlled test needs the same weights both ways.
     """
     ref = gt['datasets'][key]
     floor, bar = curves[key]['floor'], curves[key]['bar']
@@ -144,9 +142,9 @@ def rulers(m: ForecastModel, d, gt: dict, curves: dict, key: str) -> dict:
 
     long_raw = d.raw(m.forecast(d.eval[:gt['n_long'], :m.history], gt['long_steps']))
 
-    # against long TRUE rollouts of the same shape, not the evaluation set -- see
-    # evaluate.climate_ratio. The reference is frozen in ground_truth.pt so every model is
-    # scored against the identical truth sample.
+    # against long true rollouts of the same shape rather than the evaluation set; see
+    # evaluate.climate_ratio. The reference is frozen in ground_truth.pt, so every model is
+    # scored against the same truth sample.
     climate, _, _ = E.climate_ratio(long_raw, curves[key]['climate_ref'])
     chaos, chaos_sd = E.chaos_ratio(m, d, ref['lambda_true'], n_ic=32, n_steps=8000)
     spread = E.spread_ratio(m, d, curves[key]['truth_sd'], ref['spread_lead'])
@@ -168,11 +166,11 @@ def rulers(m: ForecastModel, d, gt: dict, curves: dict, key: str) -> dict:
 def evaluate_model(m: ForecastModel, d, gt: dict, curves: dict, key: str) -> dict:
     row = dict(**rulers(m, d, gt, curves, key), note='')
 
-    # Topic 04 answers "does forecasting directly to lead time s beat s repeated steps?", and
-    # that is what `direct` measures. Its `forecast` is the s = 1 head iterated, not chained
-    # blocks: chaining blocks makes this rung's `chaos` describe a different map from its
-    # `horizon`. Iterating keeps every column here about one object, and the rung's result is
-    # the direct-vs-autoregressive table.
+    # Topic 04 asks whether forecasting directly to lead time s beats s repeated steps, which
+    # is what `direct` measures. Its `forecast` iterates the s = 1 head rather than chaining
+    # blocks: chaining blocks would make this rung's `chaos` describe a different map from its
+    # `horizon`. Iterating keeps every column about one map, and the rung's result is the
+    # direct-against-autoregressive table.
     if isinstance(m, LeadTimePredictor):
         direct_err, auto_err = E.rollout_direct(m, d.eval, d.std)
         row['direct'] = E.early_errors(E.median_curve(direct_err), m.s_max)
@@ -180,14 +178,13 @@ def evaluate_model(m: ForecastModel, d, gt: dict, curves: dict, key: str) -> dic
         row['note'] = ('read `direct` vs `autoregressive`; every other column is the s = 1 '
                        'map iterated, which is not what this rung was trained to be good at')
 
-    # The controlled test: the SAME weights rolled out using the mean instead of a sample.
-    # One difference, nothing else -- which is what isolates whether sampling itself helps or
-    # hurts. It also measures how large the learned sigma is: on the ODE the true conditional
-    # is a point mass, so any nonzero sigma is spurious width that `forecast` then injects at
-    # every step.
+    # The controlled test: the same weights rolled out using the mean instead of a sample.
+    # Sampling is the only difference between the two rows, which is what isolates its effect.
+    # It also measures how large the learned sigma is: on the ODE the true conditional is a
+    # point mass, so any nonzero sigma is spurious width that `forecast` injects at every step.
     #
     # `chaos` is dropped from the control: chaos_ratio switches sampling off itself, so the
-    # two rows would carry the identical number by construction and could never differ.
+    # two rows would carry the same number by construction.
     if hasattr(m, 'sampling'):
         m.sampling = False
         drop = ('curve', 'horizon_detail', 'early', 'chaos', 'chaos_sd')
@@ -218,7 +215,7 @@ def _load(job: Job):
 
 
 def run_job(args: tuple[Job, bool]) -> tuple[str, str]:
-    """Train (or load), score, and write. Returns (name, status) -- never raises into the pool."""
+    """Train (or load), score, and write. Returns (name, status); never raises into the pool."""
     job, score_only = args
     torch.set_num_threads(1)
     t0 = time.time()
@@ -238,13 +235,12 @@ def run_job(args: tuple[Job, bool]) -> tuple[str, str]:
             m, hist = train(m, d.train, d.val, n_iters=N_ITERS, progress=False)
             hist_train, hist_val = hist.train, hist.val
 
-        # Scoring DRAWS, for two of the rungs: `forecast` samples on the Gaussian and on flow
-        # matching, and `spread_ratio` builds an ensemble out of repeated calls. This seed
-        # must stay outside the train/score branch above. Seeding only inside the training
-        # branch makes `--score-only` return a different answer on every run for exactly the
-        # two rungs whose numbers are drawn rather than computed, and makes a re-score
-        # disagree with the score taken at training time. Deterministic rungs are unaffected:
-        # they draw nothing.
+        # Scoring draws random numbers for two of the rungs: `forecast` samples on the Gaussian
+        # and on flow matching, and `spread_ratio` builds an ensemble out of repeated calls.
+        # Keep this seed outside the train/score branch above. Seeding only inside the training
+        # branch makes `--score-only` return a different answer on every run for those two
+        # rungs, and makes a re-score disagree with the score taken at training time.
+        # Deterministic rungs draw nothing and are unaffected.
         torch.manual_seed(job.seed)
 
         row = dict(name=job.name, topic=job.topic, label=job.label, cls=job.cls,

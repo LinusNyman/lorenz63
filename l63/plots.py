@@ -12,11 +12,11 @@ There is no `e`: the four rulers are reported as a table rather than a figure, b
 can carry the across-seed range and a bar chart of medians cannot. `ruler_figure` below still
 draws the bar chart for notebook use.
 
-`04d_error.png` is the lead-time model's error curve. Note that a suffixed topic collides
-with a letter -- `06f_lorenz_map` is topic 06's Lorenz map while `06ff_lorenz_map` is topic
-06f's -- so glob on the full `<topic>_<letter>` prefix, never on `06f*`.
+`04d_error.png` is the lead-time model's error curve. A suffixed topic collides with a
+letter: `06f_lorenz_map` is topic 06's Lorenz map while `06ff_lorenz_map` is topic 06f's, so
+glob on the full `<topic>_<letter>` prefix, never on `06f*`.
 
-RULE: red means the model. Grey means a reference. Nothing else is red.
+Rule: red means the model. Grey means a reference. Nothing else is red.
 """
 
 from __future__ import annotations
@@ -56,8 +56,8 @@ def data_figure(d: Data, path: str | Path | None = None, n_show: int = 10,
     """What the training data is: the trajectories, the series, and one step of it.
 
     Three panels: what was integrated, what was kept (every consecutive pair, no gaps), and
-    what sits between two kept states (100 Euler substeps -- integrator accuracy, not
-    withheld data).
+    what sits between two kept states (100 Euler substeps, which buy integrator accuracy
+    rather than withholding data).
     """
     mean, std = d.stats
 
@@ -68,13 +68,13 @@ def data_figure(d: Data, path: str | Path | None = None, n_show: int = 10,
         demo, _ = gen_data(n_demo, CONFIG['ts'], CONFIG['tf'], CONFIG['n_steps'],
                            kind=d.kind, b=d.b, spinup=0, stats=d.stats)
 
-    # The fine grid behind the first n_show time steps of one REAL training trajectory: same
+    # The fine grid behind the first n_show time steps of one real training trajectory: same
     # integrator, same step, restarted from a stored state, so on the ODE it must land back on
-    # the stored states exactly -- otherwise the zoom panel shows a different trajectory.
+    # the stored states exactly; otherwise the zoom panel shows a different trajectory.
     #
-    # On the SDE it CANNOT: restarting draws a fresh noise realisation, so the path between two
-    # stored states is one sample of many. That is not a defect to hide, it is the property the
-    # SDE dataset exists for, so the zoom panel shows the cloud instead of a single path.
+    # On the SDE it cannot: restarting draws a fresh noise realisation, so the path between two
+    # stored states is one sample of many. That is the property the SDE dataset exists for, so
+    # the zoom panel shows the cloud instead of a single path.
     spinup = demo.shape[1] - d.train.shape[1]
     kept = d.train[0, :n_show + 1, 0].numpy()
 
@@ -190,15 +190,16 @@ def loss_figure(hist: History, path: str | Path | None = None, n_val_traj: int |
     """Training and held-out loss on one log axis.
 
     The training curve is one mini-batch, so it is noisy by construction; the running mean is
-    what should be compared against the held-out curve. A gap between them would be
-    overfitting -- with 307 200 training pairs against 900 to 100 000 parameters depending on
-    the rung, there is none, and the figure shows that rather than asserting it.
+    the curve to compare against the held-out one. A gap between them would be overfitting.
+    With 307 200 training pairs against 900 to 100 000 parameters depending on the rung,
+    there is none, and the figure shows it.
 
-    The held-out curve is not comparable ACROSS rungs: it is whatever that model's `loss`
+    The held-out curve is not comparable across rungs: it is whatever that model's `loss`
     returns, so an MSE, a Gaussian NLL and a flow-matching velocity loss all appear here
-    under their own units. It is a within-rung diagnostic only -- hence the `ylabel` argument.
-    For two of the rungs it is also stochastic (topic 04 draws a fresh lead time per call,
-    06f a fresh base sample and time), so its jitter is the loss definition, not the model.
+    under their own units. It is a within-rung diagnostic only, which is what the `ylabel`
+    argument is for. For two of the rungs it is also stochastic (topic 04 draws a fresh lead
+    time per call, 06f a fresh base sample and time), so its jitter comes from the loss
+    definition rather than from the model.
     """
     fig, ax = plt.subplots(figsize=(5.6, 3.7))
     it = np.arange(len(hist.train))
@@ -227,8 +228,8 @@ def arch_figure(spec: list[tuple[str, str]], title: str, n_params: int,
                 path: str | Path | None = None, note: str = ''):
     """The net as a row of labelled blocks. `spec` is [(label, shape), ...] from model.spec().
 
-    Data-driven on purpose: every model returns its own spec and this function never learns
-    anything model-specific, so the diagrams stay consistent across models.
+    Every model returns its own spec and this function holds nothing model-specific, so the
+    diagrams stay consistent across models.
     """
     n = len(spec)
     fig, ax = plt.subplots(figsize=(1.55 * n + 1.2, 2.5))
@@ -269,17 +270,18 @@ def error_figure(curve: Tensor, floor: Tensor, bar: Tensor, scale: float, h: dic
     Three curves:
 
       red    the model
-      grey   ONE explicit-Euler step of dt per time step -- a classical solver of exactly
-             the same cost as one model call. The bar the model must clear to be worth using.
-      grey   Euler at dt_int against dt_int/2 -- the ground truth's own uncertainty, and the
+      grey   one explicit-Euler step of dt per time step, a classical solver of the same
+             cost as one model call. The bar the model must clear to be worth using.
+      grey   Euler at dt_int against dt_int/2: the ground truth's own uncertainty, and the
              floor below which no difference is resolvable.
 
     The dotted ceiling is the attractor scale: the distance between two unrelated true
-    states, past which a forecast is no better than a guess. It is measured, not chosen.
+    states, past which a forecast is no better than a guess. `data.attractor_scale` measures
+    it from the data.
     """
     n = torch.arange(len(curve))
 
-    # A reference says nothing once it has reached the ceiling -- it is a flat line at the
+    # A reference says nothing once it has reached the ceiling: it is a flat line at the
     # same height as every other flat line. Draw each only while it is still informative.
     def upto(c: Tensor) -> tuple[Tensor, Tensor]:
         over = c > scale
@@ -327,7 +329,7 @@ def ruler_figure(rows: dict[str, dict], path: str | Path | None = None,
 
     `rows` is {name: {'horizon':int, 'spread':float, 'climate':float, 'chaos':float,
     'alive':float, ...}}. The truth row is drawn first and its value is the line every other
-    bar is read against -- 1.0 is not a target anyone can beat, it is where truth sits.
+    bar is read against; 1.0 is where truth sits rather than a target.
     """
     keys = [('chaos', r'chaos   $\lambda_1$ ratio'), ('climate', 'climate   $W_1$ ratio'),
             ('spread', r'spread   $\sigma$ ratio')]
@@ -419,8 +421,7 @@ def attractor_grid(states: dict[str, Tensor], path: str | Path | None = None,
     """Truth beside every model, x against z. Covers what `climate` does not measure.
 
     `climate` is marginals-only: a model can match all three marginals and still put the mass
-    in the wrong shape. This is the figure that shows the shape, and it deliberately carries
-    no number.
+    in the wrong shape. This figure shows the shape, and carries no number.
     """
     names = list(states)
     fig, axes = plt.subplots(1, len(names), figsize=(2.5 * len(names), 2.9), sharex=True,

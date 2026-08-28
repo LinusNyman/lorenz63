@@ -1,8 +1,8 @@
 """Re-pick the hook figure's initial condition for 02_mlp_ode.
 
-Applies the criteria in `make_figures.hook`: a crossing near the median rather than a
-flattering one, a visible lobe-change disagreement with the truth inside the drawn window,
-and no basin capture over a long rollout.
+Applies the criteria in `make_figures.hook`: a crossing near the median of the 128 evaluation
+starts, a lobe-change disagreement with the truth inside the drawn window, and no basin
+capture over a long rollout.
 
 The window is an argument rather than a constant, because the lobe counts and the end-gap are
 measured inside it: `python pick_ic.py 223` for a 5.0 tau window.
@@ -39,15 +39,15 @@ gap_end = (tr[:, -1] - pr[:, -1]).norm(dim=-1)
 rows = []
 for i in range(128):
     pct = 100 * (cross < cross[i]).mean()
-    if not (35 <= pct <= 65):                      # typical, not flattered, not worst
+    if not (35 <= pct <= 65):                      # mid-range percentile of the 128 starts
         continue
-    if cross[i] > STEPS:                           # it must actually part inside the window
+    if cross[i] > STEPS:                           # the two must part inside the window
         continue
     if sw_t[i] < 4 or sw_p[i] < 4:                 # both must keep changing wing
         continue
-    if abs(int(sw_t[i]) - int(sw_p[i])) < 1:       # the disagreement must be visible
+    if abs(int(sw_t[i]) - int(sw_p[i])) < 1:       # the lobe counts must differ
         continue
-    if gap_end[i] < 0.6 * scale:                   # and they must be plainly apart at the end
+    if gap_end[i] < 0.6 * scale:                   # and they must be far apart at the end
         continue
     rows.append((i, int(cross[i]), pct, int(sw_t[i]), int(sw_p[i]), float(gap_end[i])))
 

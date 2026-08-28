@@ -1,21 +1,21 @@
 # Lorenz 63 — deterministic and probabilistic forecasting
 
-Seven models, three datasets, four rulers and a gate. The question every topic answers is the
-same one:
+Seven neural forecasters, deterministic and probabilistic, trained on the Lorenz 63 system
+and scored with one common set of measures. Three datasets, four rulers and a gate.
 
-> **How many time steps can the model take before the result is too bad to use — and what
-> counts as too bad?**
+The question every topic answers: **how many time steps can a model take before the result is
+too bad to use, and what counts as too bad?**
 
-Both halves are answered from measurement. No level a number is read against is tuned to make
-a model look good: each is either a property of the system or the integrator run against
-itself, and it is printed beside the number it judges. Two constants *are* chosen and are
-named as such — `alive_frac`'s 0.25 / 5000 and `vpt`'s literature 0.4.
+Every level a number is read against is either a property of the system or the integrator run
+against itself, and each is printed beside the number it judges. Two constants are chosen
+rather than measured: `alive_frac`'s 0.25 / 5000, and `vpt`'s 0.4, the published NRMSE
+convention.
 
 ---
 
 ## Notation
 
-One alphabet, used everywhere — in the code, in the figures, and on the poster.
+One alphabet, in the code, the figures and the poster.
 
 | symbol | meaning |
 | --- | --- |
@@ -25,29 +25,26 @@ One alphabet, used everywhere — in the code, in the figures, and on the poster
 | Δt_int = 2.5×10⁻⁴ | the integrator's substep. 100 of them make one Δt |
 | n | the **only** step index |
 
-Two conventions that remove a class of question before it is asked:
+Two conventions:
 
-- **Errors are reported in raw Lorenz units** — the same units as x, y, z. So
-  ‖**û**_n − **u**_n‖ means what a reader assumes: the distance between two points in state
-  space. Normalisation to zero mean and unit variance happens inside training, for
-  conditioning, and never appears on an axis.
-- **The training series is u₀, u₁, …, u_N.** Consecutive, complete, one training
-  pair per consecutive pair, nothing withheld. The 100 substeps between **u**_n and **u**_{n+1}
-  are how the integrator makes **u**_{n+1} accurate; they are not skipped data.
+- **Errors are in raw Lorenz units**, the same units as x, y, z, so ‖**û**_n − **u**_n‖ is the
+  distance between two points in state space. Training normalises to zero mean and unit
+  variance for conditioning; that normalisation never reaches an axis.
+- **The training series is u₀, u₁, …, u_N**: consecutive and complete, one training pair per
+  consecutive pair. The 100 substeps between **u**_n and **u**_{n+1} are how the integrator
+  reaches **u**_{n+1} accurately, not withheld data.
 
-## What one time step is, and why it matters
+## One time step
 
-The integrator takes 100 substeps of 2.5×10⁻⁴ to advance the state by Δt = 0.025. The model
-does it in **one** call. That is the whole reason a learned model is interesting here, and it
-is what `evaluate.horizon` compares against: the reference is explicit Euler taking *one* step
-of Δt — **the same number of function evaluations** as one model call.
+The integrator takes 100 substeps of 2.5×10⁻⁴ to advance the state by Δt = 0.025; the model
+does it in one call. `evaluate.horizon` therefore compares each model against explicit Euler
+taking one step of Δt, which is the same number of function evaluations as one model call.
 
-Same call count is not same cost, and the difference is worth stating rather than glossing.
-One Euler step is ~16 floating-point operations; the 128-wide MLP is ~35 000. Measured wall
-clock on one core at batch 128: 57 µs for the model against 13.6 µs for the Euler step, and
-1 340 µs for the 100-substep integrator it replaces. So the model is 4× a single coarse step
-and 24× cheaper than the ground-truth integrator — the speed-up is real, and it is 24×, not
-100×.
+Equal call counts are not equal cost. One Euler step is about 16 floating-point operations
+against the 128-wide MLP's 35 000. Measured wall clock on one core at batch 128: 57 µs for the
+model, 13.6 µs for the Euler step, and 1 340 µs for the 100-substep integrator the model
+replaces. The model costs 4× a single coarse step and 24× less than the ground-truth
+integrator.
 
 ## The four rulers, and the gate
 
@@ -59,32 +56,31 @@ and 24× cheaper than the ground-truth integrator — the speed-up is real, and 
 | **chaos** | λ₁(learned map) ÷ λ₁(true map) | 1.00 | ≤0 |
 | **alive** | fraction of long rollouts still moving like the system | 1.00 | 0.00 |
 
-`alive` is one of the brief's two tests ("do long rollouts stay on the attractor"), so it is a
-headline number reported with its across-seed range, not a footnote.
+In words: how long a forecast stays usable · whether the model's uncertainty is calibrated ·
+whether long rollouts visit the right places · whether the model stretches errors at the true
+rate · whether long rollouts are still moving.
 
-Read as: *how long is it right* · *does it admit when it is unsure* · *does it live in the
-right place* · *does it move the right way* · *is it still moving at all*.
+`alive` answers one of the project's two named tests, whether long rollouts stay on the
+attractor, so it carries its across-seed range like the other four.
 
-**Every ruler is measured on the map the model actually iterates.** For the recurrent rungs
-that map is (**u**, h, c), not **u** — the hidden state is carried through the whole rollout —
-and measuring the memoryless map instead produced an LSTM that tracked truth for 440 steps and
-scored λ₁ ≈ 0 in the same row. `models.map_state` / `map_step` is where each model says what
-its own state is.
+**Each ruler measures the map the model iterates.** For the recurrent rungs that map is
+(**u**, h, c) rather than **u**, since the hidden state carries through the whole rollout.
+Measuring the memoryless map instead gave an LSTM that tracked truth for 440 steps and scored
+λ₁ ≈ 0 in the same row. Each model declares its own state in `models.map_state` / `map_step`.
 
-**Every ruler needs five seeds — measured, and not what was planned.** The plan said `horizon`
-would need one. Retrained on five seeds the same configuration gives horizons spanning
-**45 % to 275 %** of their own median, because `horizon` is read at the attractor scale where
-the error curve is already flat. Every number reported is a median over five seeds with its
-full range printed beside it.
+**Each ruler takes five seeds.** Retrained on five seeds, one configuration gives horizons
+spanning 45 % to 275 % of their own median, because `horizon` is read at the attractor scale
+where the error curve is already flat. Every reported number is a median over five seeds with
+its full range beside it.
 
-**`spread` is not defined on the ODE.** Truth's ensemble spread there is identically zero, so
-the ratio is 0/0. It is printed as "—", which is the honest reading and not a score of zero.
+**`spread` is undefined on the ODE**: truth's ensemble spread there is identically zero, so the
+ratio is 0/0 and prints as "—". A zero there would read as a score.
 
 **`climate` does not read 1.00 at truth, and its resolution is coarse.** Its denominator is two
-disjoint halves of a finite truth pool, and the anchor is measured, not assumed: over five
-independent truth draws it is **0.62 (range 0.56–1.89)** on the ODE and **0.66 (0.57–1.00)** on
-the SDE. `climate_vs_truth` divides by it, so 1.00 there means "as close to truth as an
-independent draw of truth is". Read a model against the truth row, never against 1.
+disjoint halves of a finite truth pool. Over five independent truth draws the anchor is
+**0.62 (range 0.56–1.89)** on the ODE and **0.66 (0.57–1.00)** on the SDE; `climate_vs_truth`
+divides by it, so 1.00 means as close to truth as an independent draw of truth is. Compare a
+model against the truth row rather than against 1.
 
 ## What this suite cannot resolve
 
@@ -97,9 +93,9 @@ What each ruler does with that difference is its noise floor, before any seed en
 | --- | --- | --- | --- |
 | 0–7 % | 0.0–5.4 % | **0–80 %** | **0–50 %** |
 
-So `horizon` and `chaos` are sharp, and `climate` and `alive` cannot see a factor-of-two
-difference. This is computed in `report.controls` from rows that already exist, and it is the
-number to quote when asked whether two models really differ.
+`horizon` and `chaos` are therefore sharp, while `climate` and `alive` cannot resolve a factor
+of two. `report.controls` computes this from rows that already exist, and it bounds any claim
+that two models differ.
 
 ## Layout
 
@@ -122,8 +118,8 @@ Within a topic the letter always means the same thing:
 
 `a` data · `b` loss · `c` architecture · `d` error vs time step · `f` Lorenz map
 
-There is no `e`: the rulers are reported as a table rather than a bar chart, because a table
-can carry the across-seed range and a bar chart of medians cannot.
+There is no `e`: the rulers go into a table rather than a bar chart, because a table carries
+the across-seed range and a bar chart of medians does not.
 
 ⚠️ **A suffixed topic collides with a letter.** `06f_lorenz_map_ode.png` is topic **06**'s
 Lorenz map; `06ff_lorenz_map_ode.png` is topic **06f**'s. Glob on the full `<topic>_<letter>`
@@ -146,23 +142,23 @@ figures/      written by plots.save                  (regenerable)
 poster/       the A0 poster: Typst source, its figures, and poster_final.pdf
 ```
 
-Shared machinery lives in `l63/`; the per-model story stays in its notebook. Never copy
-toolkit code back into a notebook — that is what breaks apples-to-apples comparisons.
+Shared machinery lives in `l63/` and the per-model story stays in its notebook. Copying
+toolkit code back into a notebook breaks the like-for-like comparison between models.
 
 ## The three datasets
 
-The brief prescribes stochastic trajectories throughout, so **the SDE is the experiment**. The
-other two are controls, and each answers a distinct question about the result.
+The SDE is the experiment; the other two are controls, and each answers a distinct question
+about the result.
 
 | key | what it is | why it is here |
 | --- | --- | --- |
 | `sde` | Euler–Maruyama at **b = 0.6** | the experiment |
-| `ode` | explicit Euler, no noise | the b → 0 limit the brief itself describes, where p(**u**_{n+1}\|**u**_n) is a point mass and a probabilistic model has nothing to recover |
-| `sde015` | Euler–Maruyama at **b = 0.15** | the starter notebook's own noise level — the evidence for having changed it |
+| `ode` | explicit Euler, no noise | the b → 0 limit, where p(**u**_{n+1}\|**u**_n) is a point mass and a probabilistic model has nothing to recover |
+| `sde015` | Euler–Maruyama at **b = 0.15** | the starter notebook's noise level, and the evidence for changing it |
 
-The noise level is the experiment's independent variable, because it sets the width of
-p(**u**_{n+1} | **u**_n), and an MSE-trained model learns the *mean* of that distribution.
-Measured widths, from `run/width_sweep.py`:
+The noise level is the independent variable: it sets the width of p(**u**_{n+1} | **u**_n),
+and an MSE-trained model learns the mean of that distribution. Widths measured by
+`run/width_sweep.py`:
 
 | b | width | % of attractor scale | SDE attractor scale |
 | --- | --- | --- | --- |
@@ -176,17 +172,16 @@ Percentages are against the *deterministic* attractor's own ‖σ‖ = 14.72, no
 column beside them. Scored on the frozen datasets at 500 samples rather than the sweep's 400,
 b = 0.15 reads 4.4 % and b = 0.60 reads 16.5 %; the difference is the sample size.
 
-The sweep narrows the choice to {0.30, 0.60} — both leave the attractor undistorted and both
-are wide enough to matter. **0.60 was chosen from those two by hand**, as the wider one that
-still leaves the attractor only 7 % broader than the deterministic case. The sweep did not
-pick it on its own, and saying it did would be an overclaim.
+The sweep narrows the choice to {0.30, 0.60}: both leave the attractor undistorted and both
+are wide enough to separate the model families. **0.60 was chosen from those two by hand**, as
+the wider one that still leaves the attractor only 7 % broader than the deterministic case. The
+sweep bounds the choice; it does not make it.
 
-**Why not the starter's 0.15, which the brief assumes is enough?** Because at 4.2 % of
-attractor scale the deterministic and probabilistic rungs are not distinguishable, and that is
-now trained rather than inferred from a width. On `sde015` the MLP scores alive 1.00 and chaos
-0.94 against the Gaussian's 1.00 and 0.99, and the MLP has the *better* horizon (110 vs 89).
-On `sde` the same MLP scores alive 0.19 and chaos 0.42 against the Gaussian's 1.00 and 1.00.
-The comparison the project exists to make only exists at the wider noise level.
+At the starter's 0.15, which is 4.2 % of attractor scale, the deterministic and probabilistic
+rungs are not distinguishable. On `sde015` the MLP scores alive 1.00 and chaos 0.94 against the
+Gaussian's 1.00 and 0.99, and the MLP has the longer horizon (110 against 89). On `sde` the same
+MLP scores alive 0.19 and chaos 0.42 against the Gaussian's 1.00 and 1.00. The comparison this
+project makes exists only at the wider noise level.
 
 ## Running
 

@@ -1,13 +1,11 @@
 """Measure the conditional width p(u_{n+1} | u_n) against the SDE noise level b.
 
-This sweep selects the experiment's independent variable: b comes from these measurements
-rather than from assumption.
+This sweep selects b, the experiment's independent variable.
 
-A deterministic model trained by MSE learns the *conditional mean* of the next state. If the
-conditional is narrow, that mean is the flow map to within the width and the deterministic
-model has no room to fail -- every rung then scores the same and the comparison says nothing.
-The width therefore has to be large enough to matter, and "large enough" is a fraction of the
-attractor's own scale.
+A deterministic model trained by MSE learns the conditional mean of the next state. If the
+conditional is narrow, that mean is the flow map to within the width, the deterministic model
+has no room to fail, and every rung scores the same. The width therefore has to be large
+enough to matter, measured as a fraction of the attractor's own scale.
 
 Run:  PYTHONPATH=. python run/width_sweep.py
 """

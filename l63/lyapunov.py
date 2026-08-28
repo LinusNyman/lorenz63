@@ -3,12 +3,12 @@
 Strogatz 9.3 gives three qualifications on "the Lyapunov exponent", and this module is built
 around them:
 
-  1. The divergence is not exactly exponential -- its strength varies over the attractor. So
-     every number here is an average with a stated spread, never a single-pair slope fit.
+  1. The divergence is not exactly exponential; its strength varies over the attractor. So
+     every number here is an average with a stated spread rather than a single-pair slope fit.
   2. It saturates once the separation reaches the attractor's diameter. So the perturbation
-     is renormalised back to d0 at every step, and we never measure across a saturation.
+     is renormalised back to d0 at every step, and no measurement spans a saturation.
   3. An n-dimensional system has n exponents. `spectrum` returns all three; `lambda_map`
-     returns only the largest, the one normally quoted as *the* Lyapunov exponent.
+     returns only the largest, the one normally quoted as the Lyapunov exponent.
 
 Everything runs in float64. In float32 the round-off at d0 = 1e-8 is a sizeable fraction of
 the separation itself and inflates lambda badly.
@@ -35,9 +35,9 @@ Step = Callable[[Tensor], Tensor]
 def true_step(dt: float, n_inner: int = 100, a: tuple = A) -> Step:
     """The true flow map over one time step, as a plain function u -> u.
 
-    Passing this to `lambda_map` gives the truth's lambda through *the same estimator* the
-    models are measured with, which is what makes the `chaos` ratio a fair comparison rather
-    than a comparison against a literature constant.
+    Passing this to `lambda_map` gives truth's lambda through the same estimator the models
+    are measured with, so the `chaos` ratio compares two numbers produced the same way rather
+    than one against a literature constant.
     """
     h = dt / n_inner
 
@@ -54,10 +54,9 @@ def lambda_map(step: Step, u0: Tensor, dt: float, n_steps: int = 2000,
                d0: float = 1e-8, warmup: int = 100, seed: int = 0) -> Tensor:
     """Benettin's renormalising estimator for a discrete map. Returns (n_ic,) exponents.
 
-    Two trajectories are started a distance d0 apart, stepped together, and the separation
-    is measured and then pulled back to d0 -- every step, so the measurement always happens
-    in the linear regime and never across a saturation. lambda is the mean log growth per
-    unit time:
+    Two trajectories start a distance d0 apart, are stepped together, and the separation is
+    measured and then pulled back to d0 at every step, so the measurement stays in the linear
+    regime and never spans a saturation. lambda is the mean log growth per unit time:
 
         lambda = (1 / (N dt)) sum_n ln( |d_n| / d0 )
 
@@ -100,10 +99,9 @@ def spectrum(u0: Tensor, t_total: float = 200., dt_int: float = 2.5e-4,
 
         lambda_i = (1 / T) sum ln |R_ii|
 
-    Expected at Lorenz's parameters: (0.906, 0, -14.57). The check worth doing is not any
-    one of them but their **sum**, which must equal div f = -(sigma + 1 + beta) = -13.67 --
-    volume contraction is exactly the sum of the exponents, and it is an identity, so any
-    disagreement is integration error and nothing else.
+    Expected at Lorenz's parameters: (0.906, 0, -14.57). The check to run is on their sum,
+    which must equal div f = -(sigma + 1 + beta) = -13.67: volume contraction is exactly the
+    sum of the exponents, and that is an identity, so any disagreement is integration error.
 
     `u0` is a single state (3,). The transient is integrated away first, without accumulating.
     """

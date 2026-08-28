@@ -6,14 +6,14 @@ Two ground truths, and every model is trained and scored on both:
     SDE   du = f(u) dt + g(u) dW          Euler-Maruyama          what the brief prescribes
 
 Both are integrated on a fine grid of dt_int = 2.5e-4 and every 100th step is kept, so one
-*time step* -- the step a model predicts, and the unit of every step count in this project --
-is dt = 0.025 time units. The 100 substeps buy accuracy in u_{n+1}; they are not withheld
-data. The kept series is u_0, u_1, ..., u_N: consecutive, complete, one training pair per
-consecutive pair.
+time step (the step a model predicts, and the unit of every step count in this project) is
+dt = 0.025 time units. The 100 substeps buy accuracy in u_{n+1}; they are not data withheld
+from the model. The kept series is u_0, u_1, ..., u_N: consecutive, complete, one training
+pair per consecutive pair.
 
-Everything here is in RAW Lorenz units unless a name says `normalised`. Training happens in
-normalised units for conditioning; `raw_err` is what converts an error back before it is
-reported.
+Everything here is in raw Lorenz units unless a name says `normalised`. Training happens in
+normalised units for conditioning; `raw_err` converts an error back to raw units before it
+is reported.
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ def lorenz(x: Tensor, t: Tensor | float | None = None, a: Sequence = A) -> Tenso
 def lorenz_vol(x: Tensor, t: Tensor | float | None = None, b: float | Sequence = B) -> Tensor:
     """State-multiplicative volatility g(u) = b * u, for the SDE.
 
-    Multiplicative and not additive: the noise scales with the state, so it does not
-    swamp the origin or vanish out on the wings. `b` is the one knob that sets how wide
-    the conditional p(u_{n+1} | u_n) is, and therefore how much room the deterministic
-    model has to fail -- see `conditional_width`.
+    The noise scales with the state rather than being additive, so it neither swamps the
+    origin nor vanishes out on the wings. `b` sets the width of the conditional
+    p(u_{n+1} | u_n), and therefore how much room the deterministic model has to fail.
+    See `conditional_width`.
     """
     b = torch.as_tensor(b, dtype=x.dtype, device=x.device)
     return x * b
@@ -65,8 +65,8 @@ def solve_ode(
     """Explicit Euler. Returns (n_steps // keep_every + 1, *z.shape), starting at `z`.
 
     `keep_every` drops the intermediate substeps as it goes instead of afterwards. The
-    arithmetic is identical -- it only decides what is stored -- but it is the difference
-    between running and not: a 20 000-step rollout at 100 substeps over 224 trajectories is
+    arithmetic is identical; it only decides what is stored, and that decides whether the
+    run fits in memory: a 20 000-step rollout at 100 substeps over 224 trajectories is
     2 million states, which is terabytes kept and 54 MB dropped.
     """
     tt = torch.linspace(ts, tf, n_steps + 1)[:-1]
@@ -92,8 +92,8 @@ def solve_sde(
 ) -> Tensor:
     """Euler-Maruyama; `sde(z, t)` returns (drift, volatility). `keep_every` as in solve_ode.
 
-    The sqrt(dt) on the noise term is not a choice: a Wiener increment over dt has
-    standard deviation sqrt(dt), so anything else would make the limit depend on the grid.
+    The noise term carries sqrt(dt) because a Wiener increment over dt has standard
+    deviation sqrt(dt); any other scaling would make the limit depend on the grid.
     """
     tt = torch.linspace(ts, tf, n_steps + 1)[:-1]
     dt = (tf - ts) / n_steps
@@ -128,8 +128,8 @@ def integrate(kind: str, z: Tensor, ts: float, tf: float, n_steps: int,
 
 # --- units ------------------------------------------------------------------------------
 # Models train on normalised states because unit-variance inputs condition the optimisation.
-# Nothing is REPORTED in those units: a reader asked to interpret ||u-hat - u|| should not
-# have to hold a normalisation in their head, so every error goes back to raw x, y, z first.
+# Nothing is reported in those units: interpreting ||u-hat - u|| there would require holding
+# the normalisation in mind, so every error goes back to raw x, y, z first.
 
 def raw_err(pred: Tensor, truth: Tensor, std: Tensor) -> Tensor:
     """||u-hat_n - u_n|| in raw Lorenz units, from normalised tensors.
@@ -143,30 +143,30 @@ def raw_err(pred: Tensor, truth: Tensor, std: Tensor) -> Tensor:
 def attractor_scale(zs: Tensor) -> tuple[Tensor, float]:
     """Per-component std of the attractor, and the size of a typical state vector.
 
-    ||std|| is the number a forecast error is finally compared against: once the error is
-    that big the forecast is no better than naming a random point on the attractor.
+    ||std|| is the level a forecast error is compared against: once the error is that big
+    the forecast is no better than naming a random point on the attractor.
     """
     s = zs.reshape(-1, 3).std(dim=0)
     return s, s.norm().item()
 
 
 # --- the reference curves that define "too large" ---------------------------------------
-# Neither is a chosen threshold. Both are the integrator run against itself, which is what
-# makes them answerable: one says how good the ground truth itself is, the other says what
-# a classical solver of the SAME NUMBER OF FUNCTION EVALUATIONS as the model achieves.
+# Neither is a chosen threshold. Both are the integrator run against itself: one gives the
+# accuracy of the ground truth itself, the other gives what a classical solver of the same
+# number of function evaluations as the model achieves.
 #
 # There are two versions of each because a stochastic system has a different irreducible
 # uncertainty from a deterministic one. Using the ODE curves on the SDE compares a noise-free
 # reference against a noisy target and makes every SDE model look like it loses to Euler at
-# step 1. Use `references(kind=...)` and let it dispatch; do not call the ODE pair directly
+# step 1. Call `references(kind=...)` and let it dispatch; do not call the ODE pair directly
 # on SDE data.
 
 def euler_floor(z0: Tensor, n: int, dt: float, n_inner: int = 100) -> Tensor:
     """The ground truth's own uncertainty: Euler at dt_int against Euler at dt_int/2.
 
     Returns (batch, n + 1) in raw units. Past the step where this reaches the attractor
-    scale, "the model tracks the truth" can only mean "tracks OUR numerical ground truth" --
-    which is why it is measured rather than assumed.
+    scale, "the model tracks the truth" can only mean "tracks this project's numerical
+    ground truth", so this function measures where that step falls.
     """
     ref = solve_ode(lorenz, z0, 0., n * dt, n * n_inner, keep_every=n_inner)
     half = solve_ode(lorenz, z0, 0., n * dt, n * n_inner * 2, keep_every=n_inner * 2)
@@ -174,10 +174,10 @@ def euler_floor(z0: Tensor, n: int, dt: float, n_inner: int = 100) -> Tensor:
 
 
 def euler_bar(z0: Tensor, n: int, dt: float, n_inner: int = 100) -> Tensor:
-    """A classical solver of the same cost as the model: ONE Euler step of dt per time step.
+    """A classical solver of the same cost as the model: one Euler step of dt per time step.
 
-    Returns (batch, n + 1) in raw units, measured against the fine reference. This is the
-    bar the model has to clear to be worth using at all -- one call, one step, same budget.
+    Returns (batch, n + 1) in raw units, measured against the fine reference. The model has
+    to clear this bar to be worth using: one call, one step, the same budget.
     """
     ref = solve_ode(lorenz, z0, 0., n * dt, n * n_inner, keep_every=n_inner)
     one = solve_ode(lorenz, z0, 0., n * dt, n)
@@ -189,18 +189,17 @@ def sde_references(z0: Tensor, n: int, dt: float, b: float, n_inner: int = 100,
     """The SDE's own floor and bar, from one shared Brownian path. Returns (floor, bar).
 
     Both are (batch, n + 1) in raw units, and both are the stochastic analogues of
-    `euler_floor` / `euler_bar` -- which must NOT be used here, because they are computed
-    from the deterministic drift alone and so ignore the thing that actually limits
-    prediction on this dataset.
+    `euler_floor` / `euler_bar`. Do not use those two here: they come from the deterministic
+    drift alone and so ignore the noise, which is what limits prediction on this dataset.
 
-      floor  two INDEPENDENT realisations started from the same state. This is the
-             irreducible uncertainty of a stochastic system: it is not discretisation error,
-             it does not shrink if the step is refined, and no model -- and no solver --
-             can get below it. It bounds any "tracks the truth" claim here.
+      floor  two independent realisations started from the same state. This is the
+             irreducible uncertainty of a stochastic system: not discretisation error, it
+             does not shrink if the step is refined, and no model or solver gets below it.
+             It bounds any "tracks the truth" claim here.
 
-      bar    Euler-Maruyama at dt against Euler-Maruyama at dt_int driven by *the same*
-             Brownian path, so the difference is discretisation and nothing else. Sharing
-             the path is required: two independent coarse and fine runs would differ by the
+      bar    Euler-Maruyama at dt against Euler-Maruyama at dt_int driven by the same
+             Brownian path, so the difference is discretisation error only. Sharing the
+             path is required: two independent coarse and fine runs would differ by the
              floor above, and the bar would measure the noise instead of the method.
     """
     h, dt_2 = dt / n_inner, (dt / n_inner) ** 0.5
@@ -230,13 +229,12 @@ def references(kind: str, z0: Tensor, n: int, dt: float, b: float = B,
                n_inner: int = 100) -> tuple[Tensor, Tensor]:
     """(floor, bar) for whichever system generated the data. The one place this is chosen.
 
-    Non-finite values become +inf rather than NaN, and that case is real, not defensive: on
-    the SDE at b = 0.6 the same-cost solver -- one Euler-Maruyama step of dt -- **diverges**.
-    A multiplicative increment of 0.6 |u| sqrt(dt) is around 10 % of the state every step and
-    the coarse scheme does not survive it. So the bar on that dataset is not "worse than the
-    model", it is "unusable", which is the stronger statement. +inf keeps
-    `first_above` and the figure's truncation working; both stop at the attractor scale long
-    before the blow-up anyway.
+    Non-finite values become +inf rather than NaN, and this case occurs: on the SDE at
+    b = 0.6 the same-cost solver, one Euler-Maruyama step of dt, diverges. A multiplicative
+    increment of 0.6 |u| sqrt(dt) is around 10 % of the state every step and the coarse
+    scheme does not survive it, so on that dataset the bar is unusable rather than merely
+    worse than the model. +inf keeps `first_above` and the figure's truncation working; both
+    stop at the attractor scale long before the blow-up.
     """
     if kind == 'ode':
         out = euler_floor(z0, n, dt, n_inner), euler_bar(z0, n, dt, n_inner)
@@ -257,7 +255,7 @@ def conditional_width(z0: Tensor, dt: float, b: float = B, n_samples: int = 500,
     ||std|| in raw units.
 
     This is the experiment's independent variable. A deterministic model trained by MSE
-    targets the MEAN of this cloud (see models.Predictor); if the cloud is a point, the
+    targets the mean of this cloud (see models.Predictor); if the cloud is a point, the
     mean is the flow map and nothing is lost. Only once the cloud is wide does a
     probabilistic model have anything to recover.
     """
@@ -279,9 +277,9 @@ def conditional_width(z0: Tensor, dt: float, b: float = B, n_samples: int = 500,
 CONFIG = dict(
     ts=0., tf=10., n_steps=400,           # train / validation: 400 time steps
     train_size=2 ** 10, val_size=2 ** 3,
-    # The eval trajectories are LONGER (same time step, 25 time units instead of 10). A
+    # The eval trajectories are longer (same time step, 25 time units instead of 10). A
     # one-step error of ~1e-2 needs roughly 1000x growth to reach the size of the attractor,
-    # which at this system's growth rate takes ~8 time units -- so a 10-time-unit window
+    # which at this system's growth rate takes ~8 time units, so a 10-time-unit window
     # would censor the slow initial conditions and the 90th percentile would read "never"
     # when it means "not yet".
     eval_size=128, eval_tf=25., eval_n_steps=1000,
@@ -313,7 +311,7 @@ def gen_data(
     zs = integrate(kind, z0, ts, tf, n_steps * n_inner_steps, b=b, keep_every=n_inner_steps)
     zs = zs.permute(1, 0, 2)
 
-    # Drop the spin-up BEFORE measuring the units: the transient starts far off the attractor
+    # Drop the spin-up before measuring the units: the transient starts far off the attractor
     # and would inflate std, so the normalised data would not have unit variance.
     zs = zs[:, spinup:]
 
@@ -360,8 +358,8 @@ def make_datasets(seed: int = 0, kind: str = 'ode', b: float = B,
                   cache: bool = True, c: dict | None = None) -> Data:
     """Generate (or load) the frozen train / validation / eval / reference sets.
 
-    Deterministic in `seed`, so the cache is a speed-up and never a source of truth; it is
-    keyed on the full config and regenerated if anything in it changes.
+    Deterministic in `seed`, so the cache only saves time; it is keyed on the full config
+    and regenerated when anything in it changes.
     """
     c = {**CONFIG, **(c or {}), 'kind': kind, 'b': b}
     # `b` is in the filename, not only in the config that is checked after loading: two noise
@@ -386,11 +384,11 @@ def make_datasets(seed: int = 0, kind: str = 'ode', b: float = B,
     dt = (c['tf'] - c['ts']) / c['n_steps']
     mean, std = stats
 
-    # Same units everywhere, and unit variance -- which is what every ruler assumes.
+    # Same units everywhere, and unit variance, which every ruler assumes.
     assert torch.allclose(train.mean(dim=(0, 1)), torch.zeros(3), atol=1e-5)
     assert torch.allclose(train.std(dim=(0, 1)), torch.ones(3), atol=1e-5)
     assert torch.allclose(eval_.std(dim=(0, 1)), torch.ones(3), atol=0.15)
-    assert abs(c['eval_tf'] / c['eval_n_steps'] - dt) < 1e-12   # eval MUST use the same step
+    assert abs(c['eval_tf'] / c['eval_n_steps'] - dt) < 1e-12   # eval must use the same step
 
     data = Data(train=train, val=val, eval=eval_, ref=ref[0],
                 mean=mean, std=std, kind=kind, b=b, dt=dt)

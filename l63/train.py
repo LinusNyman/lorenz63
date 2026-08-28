@@ -32,8 +32,8 @@ def train(
 ) -> tuple[ForecastModel, History]:
     """Mini-batches are sampled over the trajectory axis; `xs` is (batch, time, 3).
 
-    `progress=False` silences tqdm -- pass it in notebooks that are run headless, where a
-    3000-iteration bar is 3000 lines of committed output.
+    `progress=False` silences tqdm; pass it in notebooks that are run headless, where a
+    3000-iteration bar becomes 3000 lines of committed output.
     """
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     hist = History()

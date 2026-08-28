@@ -1,9 +1,9 @@
 """The standard results for the Lorenz system, each as one function.
 
-These are not our findings. They are what Strogatz, *Nonlinear Dynamics and Chaos* (2nd ed.)
-ch. 9 says the system does, and the point of computing them here is that they check the
-integrator and the data pipeline before any model exists. If the Lyapunov exponents do not
-sum to the divergence, nothing downstream is worth running.
+The results here come from Strogatz, Nonlinear Dynamics and Chaos (2nd ed.) ch. 9, not from
+this project. Computing them checks the integrator and the data pipeline before any model
+exists. If the Lyapunov exponents do not sum to the divergence, nothing downstream is worth
+running.
 
 Section numbers below refer to that chapter.
 """
@@ -29,8 +29,8 @@ def fixed_points(a: tuple = A) -> tuple[Tensor, Tensor, Tensor]:
 
     Born out of the origin in a pitchfork bifurcation at rho = 1; at Lorenz's rho = 28 they
     are the left- and right-turning convection rolls, one at the centre of each wing. They
-    are *unstable* here, which is why the trajectory keeps switching wings instead of
-    settling into one.
+    are unstable at these parameters, which is why the trajectory keeps switching wings
+    instead of settling into one.
     """
     sigma, rho, beta = a
     xy = float(np.sqrt(beta * (rho - 1)))
@@ -77,7 +77,7 @@ def divergence(a: tuple = A) -> float:
 
 
 def measured_divergence(u: Tensor, a: tuple = A) -> Tensor:
-    """trace(Df) at each state -- should equal `divergence(a)` everywhere, exactly."""
+    """trace(Df) at each state, which equals `divergence(a)` everywhere, exactly."""
     return jacobian(u, a).diagonal(dim1=-2, dim2=-1).sum(-1)
 
 
@@ -85,12 +85,12 @@ def rho_hopf(a: tuple = A) -> float:
     """rho_H = sigma (sigma + beta + 3) / (sigma - beta - 1), where C+- lose stability. [9.2]
 
     Valid while sigma - beta - 1 > 0. At Lorenz's sigma, beta this is 24.74, so rho = 28 sits
-    just past it -- he chose the parameters knowing something strange had to happen there.
+    just past it; Lorenz chose the parameters knowing something strange had to happen there.
 
-    The bifurcation is *subcritical*: below rho_H each of C+- is stable but encircled by a
+    The bifurcation is subcritical: below rho_H each of C+- is stable but encircled by a
     saddle cycle, which shrinks onto the fixed point as rho -> rho_H and is absorbed by it.
-    So above rho_H there is no small stable limit cycle to fall into -- there is nothing
-    attracting anywhere nearby.
+    So above rho_H there is no small stable limit cycle to fall into, and nothing attracting
+    anywhere nearby.
     """
     sigma, _, beta = a
     assert sigma - beta - 1 > 0, 'the formula needs sigma - beta - 1 > 0'
@@ -101,9 +101,9 @@ def stability(a: tuple = A) -> dict[str, np.ndarray]:
     """Eigenvalues of Df at the origin and at C+.   [9.2]
 
     Expected at rho = 28: the origin is a saddle (one positive, two negative real
-    eigenvalues); C+ has one negative real eigenvalue and a complex pair with *positive*
-    real part -- an unstable spiral, which is why trajectories spiral outward on a wing
-    instead of falling into its centre.
+    eigenvalues); C+ has one negative real eigenvalue and a complex pair with positive real
+    part, an unstable spiral, which is why trajectories spiral outward on a wing instead of
+    falling into its centre.
     """
     origin, c_plus, _ = fixed_points(a)
     return {name: np.linalg.eigvals(jacobian(u, a).numpy())
@@ -113,9 +113,9 @@ def stability(a: tuple = A) -> dict[str, np.ndarray]:
 def symmetry_residual(u: Tensor, a: tuple = A) -> float:
     """max |f(Su) - S f(u)|, which is zero: the system is unchanged by (x,y) -> (-x,-y). [9.2]
 
-    Every solution is therefore either symmetric itself or has a symmetric partner. **This
-    is why the attractor has two wings**, and why C+ and C- are a pair rather than two
-    unrelated points.
+    Every solution is therefore either symmetric itself or has a symmetric partner. This is
+    why the attractor has two wings, and why C+ and C- are a pair rather than two unrelated
+    points.
     """
     su = u @ S.T
     return (lorenz(su, None, a) - lorenz(u, None, a) @ S.T).abs().max().item()
@@ -137,12 +137,12 @@ def kaplan_yorke(lams: Sequence[float]) -> float:
 def horizon_time(a_tol: float, d0: float, lam: float = 0.906) -> float:
     """t ~ (1/lam) ln(a/d0): how long before an error d0 grows past tolerance a.  [Ex 9.3.1]
 
-    The logarithm is the sting. Strogatz's example: tolerance 1e-3 and initial uncertainty
-    1e-7 give 4 ln(10)/lam. Improve the measurement a *millionfold*, to 1e-13, and you get
-    10 ln(10)/lam -- a factor 1e6 in measurement buys 2.5x in prediction time.
+    The dependence on d0 is logarithmic. Strogatz's example: tolerance 1e-3 and initial
+    uncertainty 1e-7 give 4 ln(10)/lam. Improving the measurement a millionfold, to 1e-13,
+    gives 10 ln(10)/lam: a factor 1e6 in measurement buys 2.5x in prediction time.
 
-    This is also why a better one-step fit has sharply diminishing returns for us: the model
-    only sets d0. Everything after that is the system's, not the model's.
+    A better one-step fit therefore has sharply diminishing returns here: the model only
+    sets d0, and the growth after that belongs to the system.
     """
     return float(np.log(a_tol / d0) / lam)
 
@@ -155,10 +155,10 @@ def horizon_steps(a_tol: float, d0: float, dt: float, lam: float = 0.906) -> flo
 def lorenz_map(z: Tensor, refine: bool = True) -> tuple[Tensor, Tensor]:
     """Successive local maxima of z(t): returns (z_n, z_{n+1}).   [9.4]
 
-    Lorenz's trick for extracting order from chaos. The pairs from a long chaotic time series
-    fall almost exactly on a single curve, z_{n+1} = f(z_n) -- a one-dimensional map you can
-    iterate. It works only because the attractor is nearly flat (~2-D); it is *not* a
-    Poincare map, which would need two coordinates per return.
+    Lorenz's construction. The pairs from a long chaotic time series fall almost exactly on a
+    single curve, z_{n+1} = f(z_n), a one-dimensional map that can be iterated. It works only
+    because the attractor is nearly flat (~2-D). It is not a Poincare map, which would need
+    two coordinates per return.
 
     `refine` fits a parabola through each peak and its two neighbours and takes the vertex.
     Without it the peak is quantised to the sampling grid and the curve comes out visibly
@@ -185,13 +185,13 @@ def map_slope(zn: Tensor, zn1: Tensor, n_bins: int = 24, min_count: int = 8
               ) -> tuple[np.ndarray, np.ndarray]:
     """Local slope |f'| of the Lorenz map, by binned linear fit. Returns (centres, slopes).
 
-    The result: |f'| > 1 *everywhere*.   [9.4]
+    The result: |f'| > 1 everywhere.   [9.4]
 
     A fixed point of the map is a closed orbit of the flow; perturbing it gives
     eta_{n+1} ~ f'(z*) eta_n, so |f'| > 1 makes it unstable. The same argument over p
     iterations makes every period-p orbit unstable, since every factor in the product
-    exceeds 1. That is Lorenz's answer to the objection that the integration might simply
-    have been too short to reveal an enormous period: there are no stable closed orbits to
+    exceeds 1. This is Lorenz's answer to the objection that the integration might have been
+    too short to reveal an orbit of enormous period: there are no stable closed orbits to
     find.
     """
     zn_, zn1_ = zn.numpy(), zn1.numpy()

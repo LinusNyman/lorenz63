@@ -1,8 +1,8 @@
 """The contract every forecaster satisfies, and the seven models that satisfy it.
 
 Training and evaluation only ever call `loss` and `forecast`, so an MLP, a recurrent net and
-a Gaussian predictor are all trained and judged by exactly the same code. That is what makes
-the comparison apples-to-apples rather than seven separate experiments.
+a Gaussian predictor are all trained and judged by the same code, and a comparison between
+them holds everything but the model fixed.
 
 One class per topic:
 
@@ -15,7 +15,7 @@ One class per topic:
     06f FlowMatchingPredictor  learned transport from N(0,I) to p(u_{n+1} | u_n)
 
 Each class docstring is the textbook account of that model: what object it approximates,
-what its loss actually minimises, how it forecasts, and what it cannot do.
+what its loss minimises, how it forecasts, and what it cannot do.
 """
 
 from __future__ import annotations
@@ -38,11 +38,11 @@ def mlp(in_dim: int = 3, out_dim: int = 3, hidden_dim: int = 128,
 
 
 def as_history(x0: Tensor, k: int = 1) -> Tensor:
-    """Normalise a forecast start to (n, k, 3) -- the last k states before the forecast.
+    """Normalise a forecast start to (n, k, 3): the last k states before the forecast.
 
     A single state (3,) and a batch of start states (n, 3) are accepted when k == 1; a model
-    that needs warm-up must be handed a 3-D (n, k', 3) tensor, so that the batch axis and the
-    history axis can never be confused for one another.
+    that needs warm-up must be handed a 3-D (n, k', 3) tensor, so the batch axis and the
+    history axis cannot be confused for one another.
     """
     if x0.dim() == 1:
         x0 = x0[None]
@@ -58,16 +58,16 @@ class ForecastModel(nn.Module, ABC):
 
     history: int = 1        # warm-up states `forecast` needs; 1 for a Markov model
 
-    # TWO knobs, each meaning exactly one thing, because collapsing them into one hides a
-    # case. `ar` picks the loss: False is teacher forcing, where the net only ever sees TRUE
-    # states -- what every rung except topic 03 does. True feeds the net its OWN output and
-    # compares every intermediate to the truth, so the loss depends on the composed map,
-    # which a one-step loss does not. `k` is how far it unrolls.
+    # Two knobs, kept separate because collapsing them into one hides a case. `ar` picks the
+    # loss: False is teacher forcing, where the net only ever sees true states, which is what
+    # every rung except topic 03 does. True feeds the net its own output and compares every
+    # intermediate to the truth, so the loss depends on the composed map, which a one-step
+    # loss does not. `k` is how far it unrolls.
     #
-    # Why not just `k > 1`. For the LSTM, AR at k = 1 is NOT teacher forcing -- it warms up on
-    # `history` states where teacher forcing carries the hidden state across all 300 -- so a
-    # dispatch on k alone would make that arm unreachable and would silently retrain the
-    # existing model under a new name. One knob could not express it.
+    # Why not dispatch on `k > 1` alone: for the LSTM, AR at k = 1 differs from teacher
+    # forcing, since it warms up on `history` states where teacher forcing carries the hidden
+    # state across all 300. Dispatching on k alone would make that arm unreachable and would
+    # silently retrain the existing model under a new name.
     #
     # Both are constructor kwargs, never `train()` arguments: `run/train_all.py` saves
     # `kwargs` into the checkpoint and rebuilds from it, so a training-time flag would put two
@@ -94,11 +94,11 @@ class ForecastModel(nn.Module, ABC):
 
     # --- the model's own map, for the chaos ruler ----------------------------------------
     # `forecast` defines the dynamics, but Benettin needs a plain s -> s function on a
-    # fixed-size state, and it has to be THE SAME dynamics the other rulers roll out.
+    # fixed-size state, and it has to be the same dynamics the other rulers roll out.
     # For a model that keeps nothing between steps, the state is the window and the default
     # below is exact. A model that carries something (an RNN's hidden state) has a bigger
-    # state than its window, and MUST override these two -- otherwise `chaos` silently
-    # measures a different system than `horizon`, `climate` and `alive` do.
+    # state than its window and must override these two; otherwise `chaos` silently measures
+    # a different system than `horizon`, `climate` and `alive` do.
 
     @property
     def map_dim(self) -> int:
@@ -135,32 +135,31 @@ class Predictor(ForecastModel):
 
         Phi : R^3 -> R^3,        u_{n+1} = Phi(u_n)
 
-    the *flow map*, which exists and is unique. The integrator approximates it with 100
-    Euler substeps. This model approximates the same object with one evaluation of a network:
-    F_theta = an MLP 3 -> h -> ... -> 3. That is the entire idea, and it is why a speed-up is
-    even on the table -- one matrix chain instead of a hundred substeps.
+    the flow map, which exists and is unique. The integrator approximates it with 100 Euler
+    substeps. This model approximates the same object with one evaluation of a network:
+    F_theta = an MLP 3 -> h -> ... -> 3. That is the idea, and the source of any speed-up:
+    one matrix chain instead of a hundred substeps.
 
     THE DATA.  Consecutive pairs (u_n, u_{n+1}) from the reference trajectories, every pair,
     no gaps. The series is u_0, u_1, ..., u_N; the substeps between two of them belong to the
-    integrator and are not withheld information.
+    integrator rather than being information withheld from the model.
 
-    THE LOSS, AND WHAT IT ACTUALLY MINIMISES.  L(theta) = E || F_theta(u_n) - u_{n+1} ||^2.
+    THE LOSS, AND ITS MINIMISER.  L(theta) = E || F_theta(u_n) - u_{n+1} ||^2.
     For a fixed input u, and over all functions F, write U' for the next state as a random
     variable:
 
         E[ ||F(u) - U'||^2 | u ]  =  ||F(u) - E[U'|u]||^2  +  Var(U'|u)
 
-    -- expand and the cross term vanishes. Only the first term depends on F, so the minimiser
-    is the **conditional mean**:
+    Expanding, the cross term vanishes. Only the first term depends on F, so the minimiser is
+    the conditional mean:
 
         F*(u) = E[ u_{n+1} | u_n = u ]
 
-    This one fact governs the whole ladder. On the ODE dataset the conditional is a point
-    mass, so its mean *is* the flow map and MSE targets exactly the right object -- there is
-    nothing for a probabilistic model to recover. On the SDE dataset the conditional has
-    width, and the conditional mean is a smoothed, contracted version of the true map: a
-    deterministic model trained this way is not approximating the dynamics, it is
-    approximating their average.
+    This fact governs the whole ladder. On the ODE dataset the conditional is a point mass,
+    so its mean is the flow map and MSE targets the right object; there is nothing for a
+    probabilistic model to recover. On the SDE dataset the conditional has width, and the
+    conditional mean is a smoothed, contracted version of the true map, so a deterministic
+    model trained this way approximates the average of the dynamics rather than the dynamics.
 
     THE FORECAST.  Autoregressive: feed the output back in, so the n-step forecast is F_theta
     composed with itself n times.
@@ -169,15 +168,15 @@ class Predictor(ForecastModel):
 
         e_{n+1}  ~  DPhi(u_n) e_n  +  eps(u_n)
 
-    where eps is the one-step model error. The homogeneous part grows like exp(lambda_1 n dt)
-    -- that is the system's sensitivity, not the model's fault. Setting the tolerance a gives
+    where eps is the one-step model error. The homogeneous part grows like exp(lambda_1 n dt),
+    which is the system's sensitivity rather than model error. Setting the tolerance a gives
 
         n_horizon  ~  ln(a / e_1) / (lambda_1 dt)
 
     which is Strogatz Ex. 9.3.1 counted in steps. The model only sets e_1, the size of its
     first mistake. Halving e_1 buys ln(2)/(lambda_1 dt) ~ 31 more steps and no more, however
     the halving was achieved. A better one-step fit therefore has sharply diminishing
-    returns, and that is a property of the system rather than of the network.
+    returns, which is a property of the system rather than of the network.
     """
 
     def __init__(self, hidden_dim: int = 128, n_hidden: int = 2,
@@ -191,8 +190,8 @@ class Predictor(ForecastModel):
 
     # --- model core ----------------------------------------------------------------------
     # MSE on every consecutive pair in the batch. Its minimiser is the conditional mean of
-    # u_{n+1} given u_n -- see the class docstring. That result is what the
-    # deterministic-vs-probabilistic comparison rests on.
+    # u_{n+1} given u_n; see the class docstring. The deterministic-vs-probabilistic
+    # comparison rests on that result.
     def loss(self, xs: Tensor) -> Tensor:
         x_in = xs[:, :-1].reshape(-1, xs.shape[-1])
         x_target = xs[:, 1:].reshape(-1, xs.shape[-1])
@@ -222,10 +221,10 @@ class Predictor(ForecastModel):
 class RolloutPredictor(Predictor):
     """The same map F_theta, trained on k composed steps instead of one.
 
-    THE DEFECT IT FIXES.  One-step MSE only ever shows F_theta inputs that lie exactly on the
-    true attractor. In a rollout the network is fed *its own output*, which drifts off that
+    THE DEFECT IT ADDRESSES.  One-step MSE only ever shows F_theta inputs that lie exactly on
+    the true attractor. In a rollout the network is fed its own output, which drifts off that
     set almost immediately. So the map is trained on one distribution of inputs and evaluated
-    on another -- and nothing in the one-step loss says what F should do at a state slightly
+    on another, and nothing in the one-step loss says what F should do at a state slightly
     off the attractor. That gap is why a model with a tiny one-step error can still wander
     off, or fall into a place the true system never visits.
 
@@ -233,28 +232,28 @@ class RolloutPredictor(Predictor):
 
         L_k(theta) = E (1/k) sum_{j=1..k} || F_theta^(j)(u_n) - u_{n+j} ||^2
 
-    where F^(j) is F composed j times. The 1/k is not cosmetic: it keeps the loss on the
-    same scale for every k, so one learning rate is right for all of them and k = 1 lands
-    on exactly topic 02's loss rather than on k times it. Because the loss contains composed
-    applications of F_theta, its gradient contains products of Jacobians DF_theta along the
-    unrolled path. The loss therefore constrains not only where the map sends a point but
-    **how it stretches the neighbourhood around it**, which a one-step loss does not.
+    where F^(j) is F composed j times. The 1/k keeps the loss on the same scale for every k,
+    so one learning rate is right for all of them and k = 1 gives exactly topic 02's loss
+    rather than k times it. Because the loss contains composed applications of F_theta, its
+    gradient contains products of Jacobians DF_theta along the unrolled path. The loss
+    therefore constrains both where the map sends a point and how it stretches the
+    neighbourhood around it; a one-step loss constrains only the first.
 
-    WHAT IS AND IS NOT DIFFERENTIATED.  Backpropagation passes through the *model*, k times.
-    It never passes through the solver: the targets u_{n+j} are fixed data, generated once.
-    The integrator does not need to be differentiable and is not differentiated.
+    WHAT IS DIFFERENTIATED.  Backpropagation passes through the model, k times, and never
+    through the solver: the targets u_{n+j} are fixed data, generated once. The integrator
+    does not need to be differentiable.
 
-    WHAT TO EXPECT.  At k = 1 this is exactly topic 02 -- the control that should reproduce
+    WHAT TO EXPECT.  At k = 1 this is topic 02's loss, the control that should reproduce
     it. As k grows, cost grows like k, and the gradient inherits the same exponential the
     forecast has: the product of Jacobians grows like exp(lambda_1 k dt), so beyond
     k dt ~ one Lyapunov time (~44 steps here) the gradient is dominated by the single most
     unstable direction and the optimisation gets harder, not more informative. The
     expectation is an improvement that saturates in k, not one that grows with it.
 
-    THE WARNING.  The rollout-k result is the number in this project most distorted by
-    training-seed variation: a two-point comparison of the extremes reads as a large effect
-    that five seeds do not support. Measure it at five seeds with error bars, and do not
-    quote a comparison of the two ends on its own.
+    SEED SENSITIVITY.  Training-seed variation distorts the rollout-k result more than any
+    other number in this project: a two-point comparison of the extremes reads as a large
+    effect that five seeds do not support. Measure it at five seeds with error bars, and do
+    not quote a comparison of the two ends on its own.
     """
 
     def __init__(self, k: int = 4, hidden_dim: int = 128, n_hidden: int = 2,
@@ -265,7 +264,7 @@ class RolloutPredictor(Predictor):
 
     # --- model core ----------------------------------------------------------------------
     # Unroll k steps, comparing every intermediate to the truth. The gradient runs back
-    # through all k applications of the SAME weights -- that is what makes the loss see the
+    # through all k applications of the same weights, which is what makes the loss see the
     # composed map. `xs` is (batch, time, 3); windows are taken over the time axis.
     def loss(self, xs: Tensor) -> Tensor:
         k = min(self.k, xs.shape[1] - 1)
@@ -294,31 +293,30 @@ class LeadTimePredictor(ForecastModel):
         Phi_{s dt} = Phi_dt o Phi_dt o ... o Phi_dt   (s times)
 
     and F_theta(., s) approximates it directly, for each s = 1 ... S. The lead time enters as
-    an extra input coordinate -- the network is R^4 -> R^3 -- scaled to O(1) so it is not
-    swamped by the state.
+    an extra input coordinate, so the network is R^4 -> R^3; it is scaled to O(1) so the
+    state does not swamp it.
 
     THE LOSS.  Sample a start n and a lead time s together, uniformly:
 
         L(theta) = E_{n,s} || F_theta(u_n, s) - u_{n+s} ||^2
 
-    THE QUESTION IT ANSWERS.  Does forecasting *directly* to lead time s beat taking s
-    repeated single steps? The two fail differently. The direct forecast makes **one**
+    THE QUESTION IT ANSWERS.  Does forecasting directly to lead time s beat taking s
+    repeated single steps? The two fail differently. The direct forecast makes one
     approximation of a hard map: Phi_{s dt} stretches by exp(lambda_1 s dt), so for large s
     the target is a violently sensitive function and a smooth network must average over it.
-    The autoregressive forecast makes **s** approximations of an easy map and lets them
+    The autoregressive forecast makes s approximations of an easy map and lets them
     compound. There is no a priori winner, and which one wins says where the long-horizon
-    error actually comes from -- compounding, or the difficulty of the map itself.
+    error comes from: compounding, or the difficulty of the map itself.
 
-    WHAT IT CANNOT DO.  A direct predictor is a forecaster, not a simulator. Asked for a
-    horizon beyond S it has nothing trained to say.
+    WHAT IT CANNOT DO.  A direct predictor forecasts only within its trained range. Asked for
+    a horizon beyond S it has nothing trained to say.
 
-    So `forecast` is the s = 1 head applied repeatedly, and nothing else. Chaining blocks of
-    S -- direct within a block, autoregressive between blocks -- would give the rung a longer
-    rollout, but it makes `chaos` describe one map while `horizon`, `climate` and `alive`
-    describe another, and the two diverge by a full attractor scale within 16 steps. Every
-    ruler on this rung measures the same object: the s = 1 map iterated. The rung's actual
-    result is `forecast_direct` against `forecast_autoregressive` at s <= S, which is the
-    comparison this rung exists to make.
+    So `forecast` is the s = 1 head applied repeatedly. Chaining blocks of S (direct within a
+    block, autoregressive between blocks) would give the rung a longer rollout, but then
+    `chaos` would describe one map while `horizon`, `climate` and `alive` describe another,
+    and the two diverge by a full attractor scale within 16 steps. Every ruler on this rung
+    measures the same object, the s = 1 map iterated. The rung's result is `forecast_direct`
+    against `forecast_autoregressive` at s <= S.
     """
 
     def __init__(self, s_max: int = 16, hidden_dim: int = 128, n_hidden: int = 2,
@@ -354,15 +352,14 @@ class LeadTimePredictor(ForecastModel):
     # --- end model core ------------------------------------------------------------------
 
     # --- model core ----------------------------------------------------------------------
-    # AR: the SAME head, composed k times. Unrolling only the s = 1 head would be the obvious
-    # reading of "train it autoregressively" and it is the wrong one -- heads s = 2..s_max
-    # would get no gradient at all, `forecast_direct` would be untrained, and the rung's
-    # actual result (the direct-vs-autoregressive table) would evaporate. Unrolling the DRAWN
-    # head instead trains every one of them to compose, which is the semigroup property the
-    # true flow has: Phi_s o Phi_s = Phi_2s. It also reduces to `tf_loss` exactly at k = 1.
+    # AR: the same head, composed k times. Unrolling only the s = 1 head would leave heads
+    # s = 2..s_max without any gradient, leave `forecast_direct` untrained, and remove the
+    # rung's direct-vs-autoregressive result. Unrolling the drawn head instead trains every
+    # head to compose, which is the semigroup property the true flow has:
+    # Phi_s o Phi_s = Phi_2s. It reduces to `tf_loss` exactly at k = 1.
     #
-    # Targets sit at n+s, n+2s, ..., n+ks, so a window needs k*s + 1 states -- which is what
-    # caps s_max here, rather than the flat `xs.shape[1] - 1` the one-step loss can use.
+    # Targets sit at n+s, n+2s, ..., n+ks, so a window needs k*s + 1 states, and that caps
+    # s_max here rather than the flat `xs.shape[1] - 1` the one-step loss can use.
     def ar_loss(self, xs: Tensor) -> Tensor:
         t, k = xs.shape[1], self.k
         s_max = min(self.s_max, (t - 1) // k)
@@ -393,11 +390,11 @@ class LeadTimePredictor(ForecastModel):
 
     @torch.no_grad()
     def forecast_autoregressive(self, x0: Tensor, steps: int) -> Tensor:
-        """The SAME network asked only for s = 1, applied `steps` times.
+        """The same network asked only for s = 1, applied `steps` times.
 
-        This is the other half of the comparison the rung exists for. Against
-        `forecast_direct` it isolates one difference and nothing else: the network, the
-        weights and the training are identical, only the way the horizon is reached changes.
+        This is the other half of the rung's comparison. Against `forecast_direct` the
+        network, the weights and the training are identical; only the way the horizon is
+        reached differs.
         """
         x = as_history(x0, 1)[:, 0]
         one = torch.tensor(1., dtype=x.dtype, device=x.device)
@@ -426,34 +423,32 @@ class RecurrentPredictor(ForecastModel):
 
         h_n = G_theta(h_{n-1}, u_n),        u-hat_{n+1} = W h_n
 
-    For the RNN, G is one affine layer and a tanh. The LSTM adds three gates -- input, forget,
-    output -- whose only purpose is to make the derivative dh_n / dh_{n-m} decay slowly in m,
-    so that a gradient can survive being carried back over a long window. In a plain RNN that
+    For the RNN, G is one affine layer and a tanh. The LSTM adds three gates (input, forget,
+    output) whose purpose is to make the derivative dh_n / dh_{n-m} decay slowly in m, so
+    that a gradient can survive being carried back over a long window. In a plain RNN that
     derivative is a product of m Jacobians and generically vanishes or explodes.
 
-    WHAT IT IS DOING HERE.  The Lorenz state is **fully observed** and the flow is
-    **Markov**: u_{n+1} depends on u_n alone. There is therefore nothing in the history for h
-    to carry that is not already in the current state. In theory a recurrent model has no
-    information advantage over the MLP.
+    WHAT IT IS DOING HERE.  The Lorenz state is fully observed and the flow is Markov:
+    u_{n+1} depends on u_n alone. There is therefore nothing in the history for h to carry
+    that is not already in the current state. In theory a recurrent model has no information
+    advantage over the MLP.
 
-    It is included for two reasons. The brief names it, so it is covered. And it is the
-    *control on the Markov property*: if the LSTM beats the MLP by more than the seed spread,
-    then either the flow is not Markov at this time step -- which would be a finding about
-    the data pipeline -- or the extra parameters are doing ordinary capacity work. The
-    architecture sweep in topic 02 separates those two explanations, so the two are read
-    together.
+    It is here for two reasons. The brief names it. And it is the control on the Markov
+    property: if the LSTM beats the MLP by more than the seed spread, then either the flow is
+    not Markov at this time step, which would be a finding about the data pipeline, or the
+    extra parameters are doing ordinary capacity work. The architecture sweep in topic 02
+    separates those two explanations, so the two are read together.
 
-    WARM-UP, AND WHAT `history` IS NOT.  `history` is the number of states `forecast` is
-    handed before it starts predicting, and nothing else. Training is teacher forcing over
-    the WHOLE trajectory in the mini-batch (300 states here), not over an 8-state window;
-    and once a forecast starts, the hidden state is carried for the entire rollout, so the
-    model's context is unbounded rather than 8. Those are three different lengths and they
-    are not interchangeable.
+    WARM-UP AND `history`.  `history` is the number of states `forecast` is handed before it
+    starts predicting. Training is teacher forcing over the whole trajectory in the
+    mini-batch (300 states here), not over an 8-state window; and once a forecast starts, the
+    hidden state is carried for the entire rollout, so the model's context is unbounded
+    rather than 8. Those are three different lengths and they are not interchangeable.
 
-    ITS MAP IS BIGGER THAN ITS WINDOW.  Because h is carried, the object that gets iterated
-    is (u, h, c) -> (u', h', c'), not u -> u'. `map_state` / `map_step` below implement that,
-    so the `chaos` ruler measures the same dynamics the rollout has. On a
-    3 + 2*n_layers*hidden dimensional state, rather than on R^3.
+    THE MAP IS BIGGER THAN THE WINDOW.  Because h is carried, the iterated object is
+    (u, h, c) -> (u', h', c') rather than u -> u'. `map_state` / `map_step` below implement
+    that on a 3 + 2*n_layers*hidden dimensional state, so the `chaos` ruler measures the same
+    dynamics the rollout has.
     """
 
     def __init__(self, cell: str = 'lstm', hidden_dim: int = 64, n_layers: int = 1,
@@ -485,26 +480,26 @@ class RecurrentPredictor(ForecastModel):
     # --- end model core ------------------------------------------------------------------
 
     # --- model core ----------------------------------------------------------------------
-    # AR: warm up on `history` TRUE states, then free-run k steps carrying (h, c) -- exactly
+    # AR: warm up on `history` true states, then free-run k steps carrying (h, c), which is
     # the shape `forecast` has, truncated to k. This is rollout / multi-step training, the
     # standard way a deterministic forecaster is trained through its own composition (the
     # curriculum GraphCast uses). Scheduled sampling (Bengio et al. 2015) is the older
-    # RNN-specific alternative and would substitute the model's own output with probability
-    # eps inside a full-sequence pass; it is not used here because a k-step unroll is what
-    # makes this rung comparable to the MLP's rollout loss and to the lead-time model.
+    # RNN-specific alternative, substituting the model's own output with probability eps
+    # inside a full-sequence pass; this rung uses the k-step unroll instead, so that it is
+    # comparable to the MLP's rollout loss and to the lead-time model.
     #
-    # EVERY VALID START, by default -- this is the fairness condition, not a detail.
+    # Every valid start, by default, which is the fairness condition against the other rungs.
     # `RolloutPredictor` unrolls from `xs[:, :-k]`, all T-k of them, and so does
     # `LeadTimePredictor.ar_loss`. Sampling a subset of windows instead (`n_starts=32`) puts
-    # the LSTM on 32 supervised targets per trajectory against teacher forcing's 300 -- a 9x
-    # handicap that has nothing to do with AR, and that the rulers report as AR making the
-    # model worse. Same starts as the other rungs, same budget, or the rungs are not
+    # the LSTM on 32 supervised targets per trajectory against teacher forcing's 300, a 9x
+    # handicap unrelated to AR that the rulers then report as AR making the model worse. Keep
+    # the same starts and the same budget as the other rungs, or the rungs are not
     # comparable.
     #
-    # `nn.LSTM` returns only the FINAL (h, c), never one per position, so the warm-up cannot
+    # `nn.LSTM` returns only the final (h, c), never one per position, so the warm-up cannot
     # be shared across starts the way the MLP shares its single forward: each window is
     # replayed from scratch. That is what makes this rung ~8x its teacher-forced cost, and it
-    # is a property of the API rather than of the method.
+    # follows from the API rather than from the method.
     def ar_loss(self, xs: Tensor) -> Tensor:
         t, h, k = xs.shape[1], self.history, self.k
         hi = t - h - k + 1                          # a window of h states AND k targets fit
@@ -515,7 +510,7 @@ class RecurrentPredictor(ForecastModel):
         tgt = torch.stack([xs[:, i + h:i + h + k] for i in idx], 1).reshape(-1, k, 3)
 
         # the same warm-up `forecast` does: keep the recurrent state, drop all but the last
-        # prediction -- those positions are history, not forecast
+        # prediction, since those positions are history rather than forecast
         out, state = self(win)
         x = out[:, -1:]
 
@@ -532,7 +527,7 @@ class RecurrentPredictor(ForecastModel):
         h = as_history(x0, self.history)
 
         # warm up on the k given states; keep the recurrent state, drop all but the last
-        # prediction -- those positions are history, not forecast
+        # prediction, since those positions are history rather than forecast
         out, state = self(h)
         x = out[:, -1:]
 
@@ -545,8 +540,8 @@ class RecurrentPredictor(ForecastModel):
 
     # --- the map: (u, h, c), because `forecast` carries the recurrent state -------------
     # The default in ForecastModel would re-run the warm-up on every step and so measure a
-    # different, memoryless system. Verified: on 05_lstm_ode_s0 the two disagree by 4.3
-    # Lorenz units at step 50 and 34.7 by step 200 -- more than the attractor is wide.
+    # different, memoryless system. On 05_lstm_ode_s0 the two disagree by 4.3 Lorenz units at
+    # step 50 and by 34.7 at step 200, more than the width of the attractor.
 
     @property
     def _n_gates(self) -> int:
@@ -590,52 +585,51 @@ class RecurrentPredictor(ForecastModel):
 class GaussianPredictor(ForecastModel):
     """The next state as a distribution: u_{n+1} | u_n ~ N(mu(u_n), Sigma(u_n)).
 
-    THE OBJECT.  One network with two heads -- a mean mu_theta: R^3 -> R^3 and a log standard
+    THE OBJECT.  One network with two heads: a mean mu_theta: R^3 -> R^3 and a log standard
     deviation, so Sigma_theta = diag(sigma^2) is positive by construction. This is the
-    smallest possible step from predicting a point to predicting a distribution, and the
-    first rung on which the word "probabilistic" means anything.
+    smallest step from predicting a point to predicting a distribution, and the first rung
+    that predicts a distribution at all.
 
     THE LOSS.  Negative log likelihood. For a diagonal Gaussian, per component,
 
         -log p  =  1/2 sum_i [ (u_i - mu_i)^2 / sigma_i^2  +  log sigma_i^2 ]  +  const
 
-    Read it as what it is: **a squared error divided by a learned variance, plus a penalty
-    for a large variance.** Where the model predicts well, sigma shrinks and the first term
+    The expression is a squared error divided by a learned variance, plus a penalty for a
+    large variance. Where the model predicts well, sigma shrinks and the first term
     dominates; where it does not, sigma widens and the log term is paid instead. That is the
-    difference from MSE: the predicted uncertainty is free to grow, and the log term prices
-    it against the residual actually incurred.
+    difference from MSE: the predicted uncertainty can grow, and the log term prices it
+    against the residual incurred.
 
     ITS RELATION TO TOPIC 02.  If sigma were held fixed and constant, the first term is MSE
-    up to a constant factor and the second is a constant: minimising the NLL would be
-    *exactly* minimising MSE, and mu_theta would converge to the same conditional mean. So
-    none of the gain can come from the change of loss alone. It has to come from the sigma
-    head, and from **sampling** in the forecast.
+    up to a constant factor and the second is a constant: minimising the NLL would then be
+    minimising MSE, and mu_theta would converge to the same conditional mean. So none of the
+    gain comes from the change of loss alone. It comes from the sigma head, and from sampling
+    in the forecast.
 
-    THE FORECAST.  Draw u-hat_{n+1} ~ N(mu(u-hat_n), Sigma(u-hat_n)) and feed the *sample*
-    back. Each call gives a different trajectory; an ensemble is repeated calls. This is why
-    sampling is not baked into the contract: a deterministic model called twice must return
-    the same answer, and that is correct behaviour, not a limitation.
+    THE FORECAST.  Draw u-hat_{n+1} ~ N(mu(u-hat_n), Sigma(u-hat_n)) and feed the sample
+    back. Each call gives a different trajectory; an ensemble is repeated calls. Sampling is
+    not baked into the contract because a deterministic model called twice returns the same
+    answer by design.
 
-    WHAT HAPPENS ON EACH DATASET -- and the ODE is not what the theory predicts.
+    WHAT HAPPENS ON EACH DATASET.  The ODE does not follow the theory.
       ODE. The conditional is a point mass, so sigma should go to zero. It does not: over five
-      seeds sigma is **7.8x the model's own one-step residual** (range 1.3-17.0). The
-      predicted uncertainty is roughly an order of magnitude larger than the residual, and it
-      costs `climate` -- 18.6 against the MLP's 1.9, on a dataset where there is nothing to
-      be uncertain about. What that spurious width does NOT do is decide whether the rollout
-      survives: mean-only and sampled both score alive 1.00 in the median. (Seed 0 alone shows
-      mean-only collapsing to 0.00, which is why the control runs on all five seeds -- one
-      seed of `alive` is not a measurement.) `sigma_over_residual` is banked for exactly this.
+      seeds sigma is 7.8x the model's own one-step residual (range 1.3-17.0). The predicted
+      uncertainty is roughly an order of magnitude larger than the residual, and it costs
+      `climate`: 18.6 against the MLP's 1.9, on a dataset where there is nothing to be
+      uncertain about. That spurious width does not decide whether the rollout survives:
+      mean-only and sampled both score alive 1.00 in the median. (Seed 0 alone shows mean-only
+      collapsing to 0.00, which is why the control runs on all five seeds; one seed of `alive`
+      is not a measurement.) `sigma_over_residual` is banked for this.
       SDE. The conditional has real width, sigma/residual = 0.90, and the model is calibrated
-      (spread 1.00). Here the controlled test is unambiguous: the same weights rolled out with
-      the mean instead of a sample go from climate 5.2 to 28.6 and from spread 1.00 to 0.00.
-      Sampling is what recovers the statistics, on the dataset where there are statistics to
-      recover. That is the result; the ODE is the control that shows it is not an artefact.
+      (spread 1.00). The controlled test: the same weights rolled out with the mean instead of
+      a sample go from climate 5.2 to 28.6 and from spread 1.00 to 0.00. Sampling recovers the
+      statistics on the dataset that has statistics to recover, and the ODE row is the control
+      on that comparison.
 
-    THE LIMITATION.  A diagonal Gaussian is the *simplest* probabilistic model, not a
-    flexible one: it cannot represent a skewed or multi-modal conditional, and it assumes the
-    three components are conditionally independent. Whether that restriction is mild is
-    measurable rather than assumable -- it depends on how Gaussian the true conditional is at
-    this time step, which topic 00's conditional-width experiment measures directly.
+    THE LIMITATION.  A diagonal Gaussian cannot represent a skewed or multi-modal
+    conditional, and it assumes the three components are conditionally independent. How mild
+    that restriction is depends on how Gaussian the true conditional is at this time step,
+    which topic 00's conditional-width experiment measures directly.
     """
 
     LOG_SIGMA_MIN, LOG_SIGMA_MAX = -12., 3.     # keeps the NLL finite early in training
@@ -652,8 +646,8 @@ class GaussianPredictor(ForecastModel):
         return mu, log_sigma.clamp(self.LOG_SIGMA_MIN, self.LOG_SIGMA_MAX)
 
     # --- model core ----------------------------------------------------------------------
-    # Gaussian NLL, dropping the additive constant 3/2 log(2 pi) -- it shifts the loss but
-    # not its gradient, and leaving it out keeps the number comparable with an MSE.
+    # Gaussian NLL, dropping the additive constant 3/2 log(2 pi): it shifts the loss but not
+    # its gradient, and leaving it out keeps the number comparable with an MSE.
     def loss(self, xs: Tensor) -> Tensor:
         x_in = xs[:, :-1].reshape(-1, xs.shape[-1])
         x_target = xs[:, 1:].reshape(-1, xs.shape[-1])
@@ -694,16 +688,15 @@ class TransformerPredictor(ForecastModel):
 
         h = Encoder(W u_(n-k+1..n) + p),      u-hat_(n+1) = V h_n
 
-    Attention is what replaces the hidden state: instead of carrying information forward step
-    by step, every position looks at every earlier position directly. That is the property
-    that made transformers useful for long sequences -- the path length between two positions
-    is 1 rather than their separation, so a gradient does not have to survive a product of
+    Attention replaces the hidden state: instead of carrying information forward step by
+    step, every position looks at every earlier position directly. This is the property that
+    made transformers useful for long sequences: the path length between two positions is 1
+    rather than their separation, so a gradient does not have to survive a product of
     Jacobians the way it does in an RNN.
 
     THE MASK.  Causal, strictly lower-triangular. Position n may attend to positions <= n and
-    no further. Without it the model would see u_(n+1) while predicting u_(n+1) and the
-    training loss would go to zero while the forecast stayed useless -- the classic way to get
-    a low loss curve and a worthless model.
+    no further. Without it the model would see u_(n+1) while predicting u_(n+1), and the
+    training loss would go to zero while the forecast stayed useless.
 
     TRAINING.  Teacher forcing, exactly as for the recurrent models: the true sequence goes in
     and every position predicts the next true state, so one pass trains every position at
@@ -711,20 +704,19 @@ class TransformerPredictor(ForecastModel):
     sequence length: over the full 300-step trajectory that is 90 000 pairs per head per
     layer, and it buys nothing, since at forecast time the model only ever sees `history`
     states. Chunking makes the cost linear in T at the price of one target per chunk
-    boundary -- `chunk` is therefore picked to divide the trajectory, and at 75 the model
-    trains on 296 of the 300 available pairs. A `chunk` that does not divide it drops the
-    remainder: at chunk = 76, 301 // 76 is 3, so the last 73 states go unused and the model
-    sees 225 pairs, 75 % of what every other rung sees.
+    boundary, so `chunk` is picked to divide the trajectory; at 75 the model trains on 296 of
+    the 300 available pairs. A `chunk` that does not divide it drops the remainder: at
+    chunk = 76, 301 // 76 is 3, so the last 73 states go unused and the model sees 225 pairs,
+    75 % of what every other rung sees.
 
-    WHAT TO EXPECT, AND WHY IT IS WORTH RUNNING ANYWAY.  The same argument as for the RNN and
-    the LSTM applies, and more strongly. The Lorenz state is fully observed and the flow is
-    Markov: u_(n+1) depends on u_n alone. There is nothing in the window for attention to
-    find. A transformer here is a large, expensive model solving a problem that has no
-    sequence structure, and the expectation is that it matches the MLP at best.
+    WHAT TO EXPECT.  The same argument as for the RNN and the LSTM applies, and more
+    strongly. The Lorenz state is fully observed and the flow is Markov: u_(n+1) depends on
+    u_n alone. There is nothing in the window for attention to find. A transformer here is a
+    large, expensive model solving a problem that has no sequence structure, and the
+    expectation is that it matches the MLP at best.
 
-    The brief names it, so it is covered -- and a model that *cannot* help is informative:
-    together with the RNN and the LSTM it puts three independent numbers on how much of any
-    apparent improvement here is architecture rather than noise.
+    The brief names it. Together with the RNN and the LSTM it also puts three independent
+    numbers on how much of any apparent improvement here is architecture rather than noise.
     """
 
     def __init__(self, d_model: int = 64, nhead: int = 4, n_layers: int = 2,
@@ -751,9 +743,9 @@ class TransformerPredictor(ForecastModel):
 
     # --- model core ----------------------------------------------------------------------
     # Teacher forcing under a causal mask, on chunks of the trajectory. The chunking is a
-    # cost decision and not a modelling one: it makes attention O(T * chunk) instead of
-    # O(T^2). It costs one target per chunk boundary, so `chunk` must divide the trajectory
-    # -- check `n * c` against `t` before changing it.
+    # cost decision rather than a modelling one: it makes attention O(T * chunk) instead of
+    # O(T^2). It costs one target per chunk boundary, so `chunk` must divide the trajectory;
+    # check `n * c` against `t` before changing it.
     def loss(self, xs: Tensor) -> Tensor:
         b, t, _ = xs.shape
         c = min(self.chunk, t)
@@ -788,8 +780,8 @@ class TransformerPredictor(ForecastModel):
 class FlowMatchingPredictor(ForecastModel):
     """A generative model of p(u_{n+1} | u_n), learned as a transport from noise.
 
-    THE OBJECT.  The Gaussian rung assumes the conditional has a shape -- a diagonal normal --
-    and fits its two moments. This rung assumes nothing about the shape. It learns to *carry*
+    THE OBJECT.  The Gaussian rung assumes the conditional has a shape (a diagonal normal)
+    and fits its two moments. This rung assumes nothing about the shape. It learns to carry
     a simple base distribution onto the true conditional, by learning the velocity field of
     the flow that does the carrying:
 
@@ -798,10 +790,9 @@ class FlowMatchingPredictor(ForecastModel):
     Sampling means starting at x ~ N(0, I) and integrating dx/dt = v_theta(x, t, u_n) from
     t = 0 to t = 1. Whatever distribution comes out the other end is the model's conditional.
 
-    THE LOSS, AND WHY IT NEEDS NO SOLVER.  The obstacle is that the target velocity field is
-    not known -- it depends on the very distribution being learned. Conditional flow matching
-    removes the obstacle: pick a base sample x0 and a data sample x1 and connect them by a
-    straight line,
+    THE LOSS, AND WHY IT NEEDS NO SOLVER.  The target velocity field is not known: it depends
+    on the distribution being learned. Conditional flow matching works around that. Pick a
+    base sample x0 and a data sample x1 and connect them by a straight line,
 
         x_t = (1 - t) x0 + t x1,        d x_t / d t  =  x1 - x0
 
@@ -809,16 +800,15 @@ class FlowMatchingPredictor(ForecastModel):
 
         L(theta) = E_(t, x0, x1) || v_theta(x_t, t, u_n) - (x1 - x0) ||^2
 
-    with t uniform on [0,1]. The remarkable part is that although each individual target is
-    the velocity of one straight line, the *minimiser* is the marginal velocity field whose
-    flow transports the base distribution onto the data distribution -- so a loss made of
-    per-pair regressions learns the transport. Nothing is backpropagated through a solver, and
-    no likelihood is evaluated.
+    with t uniform on [0,1]. Although each individual target is the velocity of one straight
+    line, the minimiser is the marginal velocity field whose flow transports the base
+    distribution onto the data distribution, so a loss made of per-pair regressions learns
+    the transport. Nothing is backpropagated through a solver, and no likelihood is evaluated.
 
     THE FORECAST.  Draw a base sample, integrate the learned field with `n_steps` Euler steps,
     and feed the result back in. So one forecast step costs `n_steps` network evaluations
-    rather than one -- this is the most expensive model here to roll out, and the cost is the
-    price of not assuming the conditional's shape.
+    rather than one, which makes this the most expensive model here to roll out; the cost
+    buys not having to assume the conditional's shape.
 
     WHAT TO EXPECT.
       ODE. The conditional is a point mass. A model that can represent any shape must here
@@ -828,14 +818,15 @@ class FlowMatchingPredictor(ForecastModel):
       where it should at least match the Gaussian, and where it could beat it if the true
       conditional is not Gaussian.
 
-    THE CAVEAT.  It is not tuned. Same width, same optimiser, same 3000 iterations as
-    every other rung -- and it is solving a strictly harder problem than they are, since it
-    has to learn a field over an extra time dimension. A poor number here means "not with this
-    budget", not "flow matching does not work".
+    THE CAVEAT.  It is not tuned: same width, same optimiser, same 3000 iterations as every
+    other rung, on a strictly harder problem, since it has to learn a field over an extra
+    time dimension. A poor number here means "not with this budget" rather than "flow
+    matching does not work".
 
     The `sampling` switch freezes the base sample to zero, making the map deterministic so a
-    Lyapunov exponent can be measured at all. That measures the sensitivity of one particular
-    path through the flow, not of the ensemble, and it is reported as such.
+    Lyapunov exponent can be measured. That exponent describes the sensitivity of one
+    particular path through the flow rather than of the ensemble, and `chaos` reports it as
+    such.
     """
 
     def __init__(self, hidden_dim: int = 128, n_hidden: int = 3,

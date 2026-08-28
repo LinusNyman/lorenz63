@@ -1,12 +1,12 @@
 """Generate the thin driver notebooks, one per topic.
 
-They are generated rather than hand-written so that all ten stay consistent: same imports,
-same order, same closing `## Findings` cell. A notebook here **reads artifacts and narrates**
--- it never retrains. `run/train_all.py` owns the compute; duplicating it in ten notebooks
-would be ten things to keep in step instead of one.
+Generated rather than hand-written so that all ten stay consistent: same imports, same order,
+same closing `## Findings` cell. A notebook here reads artifacts and narrates; it never
+retrains. `run/train_all.py` owns the compute, so the compute is one thing to keep in step
+instead of ten.
 
-A RERUN DOES NOT OVERWRITE THE FINDINGS CELL. That cell is the one part of a notebook written
-by hand, so a rerun preserves its contents and replaces only the machinery around it.
+A rerun does not overwrite the Findings cell. That cell is the one hand-written part of a
+notebook, so a rerun preserves its contents and replaces only the machinery around it.
 `--reset` discards it and restores the placeholder.
 
 Run:  PYTHONPATH=. python run/make_notebooks.py            [--reset]
@@ -42,7 +42,7 @@ S  = clean(summarise(load_rows()))
 DATA = list(gt['datasets'])                      # 'ode', 'sde', 'sde015'
 
 def num(v, w=6, p=2):
-    """A ruler value, or an em dash where it is genuinely undefined."""
+    """A ruler value, or an em dash where it is undefined."""
     if isinstance(v, dict):
         v = v.get('median')
     undefined = v is None or v != v          # None from clean(), bare NaN from the json
@@ -91,16 +91,16 @@ for i, e in enumerate(s['early'][:6], 1):
 
 TOPICS = {
     '00': ('Ground truth, and the standard results', None, '''\
-Nothing about the machine learning is believable until the ground truth reproduces what the
-system is known to do. This notebook is that check, plus the frozen datasets everything
-downstream inherits.
+The ground truth has to reproduce what the system is known to do before the machine learning
+means anything. This notebook is that check, plus the frozen datasets everything downstream
+inherits.
 
-Two kinds of row below and they are not the same evidence. C±, ∇·f and ρ_H are **closed forms
-evaluated** — they check the formulas were transcribed right and cannot fail otherwise. The
-measured divergence, the spectrum, its sum against ∇·f, Kaplan–Yorke, the symmetry residual
-and the Lorenz map's slope are **numerical and can fail**; those are the integrator check.
+Two kinds of row below. C±, ∇·f and ρ_H are closed forms evaluated: they check the formulas
+were transcribed right and cannot fail otherwise. The measured divergence, the spectrum, its
+sum against ∇·f, Kaplan–Yorke, the symmetry residual and the Lorenz map's slope are numerical
+and can fail, so those are the integrator check.
 
-Everything here is produced by `run/ground_truth.py`; this reads its output.\
+`run/ground_truth.py` produces everything here; this notebook reads its output.\
 ''', '''\
 k = gt['known']
 print("--- closed forms, transcription checks (cannot fail) ---")
@@ -128,11 +128,10 @@ for key in DATA:
 What each ruler measures, and what truth itself scores on it. The truth row is the
 calibration: every model column is read against it.
 
-Two of them do **not** read 1.00 at truth and must not be read as though they did. The
-`climate`'s denominator is two disjoint halves of one finite pool, which pushes them apart,
-so an independent draw scores below 1 — `climate_vs_truth` divides that out. And on the SDE
-the floor is realisation-vs-realisation noise, which is irreducible: no model and no solver
-can get under it.\
+Two of them do not read 1.00 at truth. `climate`'s denominator is two disjoint halves of one
+finite pool, which pushes them apart, so an independent draw scores below 1;
+`climate_vs_truth` divides that out. On the SDE the floor is realisation-against-realisation
+noise, which is irreducible: no model and no solver gets under it.\
 ''', '''\
 for key in DATA:
     r = gt['datasets'][key]
@@ -150,7 +149,7 @@ for key in DATA:
     print(f"  alive     truth scores {r['truth_alive']:.2f}   ·   lobe {r['truth_lobe']:.3f} switches/tau")
 
 c = json.load(open(ARTIFACTS / 'summary.json'))['controls']
-print("\\n--- the k=1 control: what this suite CANNOT resolve ---")
+print("\\n--- the k=1 control: what this suite cannot resolve ---")
 print("same model, same loss, differing only by float summation order (~7e-7 in the weights)")
 for name, cc in sorted(c.items()):
     bits = '  '.join(f"{k} {v['rel']*100:5.1f}%" for k, v in cc.items())
@@ -160,16 +159,17 @@ for name, cc in sorted(c.items()):
     '02': ('MLP one-step predictor', 'mlp', '''\
 `u_{n+1} = F(u_n)`, trained by mean squared error on every consecutive pair.
 
-The one fact that governs the whole ladder: **the minimiser of MSE is the conditional mean**
-`E[u_{n+1} | u_n]`. On the ODE the conditional is a point mass, so that mean *is* the flow map.
-On the SDE it is not. See `l63.models.Predictor` for the derivation.\
+The fact that governs the whole ladder: the minimiser of MSE is the conditional mean
+`E[u_{n+1} | u_n]`. On the ODE the conditional is a point mass, so that mean is the flow map.
+On the SDE the conditional has width, so it is not. `l63.models.Predictor` has the derivation.\
 ''', None),
 
     '03': ('MLP with a rollout loss', 'rollout_k8', '''\
-The same network, unrolled `k` steps inside the loss so the gradient sees the *composed* map.
-`k = 1` is the control: it must reproduce topic 02, or the k axis means nothing.
+The same network, unrolled `k` steps inside the loss so the gradient sees the composed map.
+`k = 1` is the control: it has to reproduce topic 02, or the k axis means nothing.
 
-The ranges matter more than the medians here: the `k` axis moves less than the seed spread does.\
+The `k` axis moves less than the seed spread does, so the ranges below carry more than the
+medians do.\
 ''', '''\
 for key in DATA:
     print(f"--- {key.upper()} ---")
@@ -188,9 +188,9 @@ for key in DATA:
     '04': ('Lead-time predictor', 'leadtime', '''\
 `u_{n+s} = F(u_n, s)` — the network conditioned on the forecast horizon.
 
-The question, and the only one this rung answers: does forecasting *directly* to lead time `s`
-beat `s` repeated single steps? Every other column here describes the s=1 map iterated, which
-is not what the rung was trained to be good at.\
+The question this rung answers: does forecasting directly to lead time `s` beat `s` repeated
+single steps? Every other column here describes the s=1 map iterated, which is not what the
+rung was trained for.\
 ''', '''\
 s = S['04_leadtime_ode']
 print('  s   direct      autoregressive   ratio')
@@ -202,9 +202,9 @@ print(f"\\nnote: {s['note']}")\
 
     '05': ('Recurrent models — RNN and LSTM', 'lstm', '''\
 The Lorenz state is fully observed and the flow is Markov, so there is nothing in the history
-for the hidden state to carry. These are the control that shows the Markov property is real.
+for the hidden state to carry. These models are the control on that.
 
-`chaos` here is measured on the map these models actually iterate — `(u, h, c)`, not `u` —
+`chaos` here is measured on the map these models iterate, `(u, h, c)` rather than `u` alone,
 because the hidden state is carried through the whole rollout. Measuring the memoryless map
 instead gave an LSTM that tracked truth for 440 steps and scored λ₁ ≈ 0 in the same row.\
 ''', '''\
@@ -220,12 +220,12 @@ for key in DATA:
     '06': ('Gaussian predictor', 'gaussian', '''\
 `u_{n+1} ~ N(mu(u_n), Sigma(u_n))`, trained by maximum likelihood.
 
-If sigma were fixed, minimising the likelihood would be exactly minimising MSE — so any gain
-has to come from the sigma head and from sampling. The mean-vs-sampled test below is what
-isolates that, and it now runs on all five seeds, because it is read on `alive` and `climate`.
+If sigma were fixed, minimising the likelihood would be minimising MSE, so any difference from
+topic 02 comes from the sigma head and from sampling. The mean-against-sampled test below
+isolates those two, over all five seeds, since it is read on `alive` and `climate`.
 
-`chaos` is absent from the control on purpose: the estimator switches sampling off itself, so
-the two rows would carry the identical number by construction.\
+`chaos` is absent from the control: the estimator switches sampling off itself, so the two
+rows would carry the same number by construction.\
 ''', '''\
 for key in DATA:
     s = S.get(f'06_gaussian_{key}')
@@ -241,12 +241,12 @@ for key in DATA:
 '''),
 
     '05t': ('Transformer', 'transformer', '''\
-Causal self-attention over the same 8-state window the recurrent models use. The Lorenz flow is
-Markov, so there is nothing in that window for attention to find — this is the third and largest
-control on how much apparent improvement is architecture rather than noise.
+Causal self-attention over the same 8-state window the recurrent models use. The Lorenz flow
+is Markov, so there is nothing in that window for attention to find; this is the third and
+largest control on how much apparent improvement is architecture rather than noise.
 
-It carries ~100k parameters against the MLP's 17k. The shared budget is in *iterations*, not
-in capacity, so read this as an architecture control and not as a matched comparison.\
+It carries ~100k parameters against the MLP's 17k. The shared budget is in iterations rather
+than in capacity, which makes this an architecture control and not a matched comparison.\
 ''', '''\
 for key in DATA:
     print(f"--- {key.upper()} ---")
@@ -258,12 +258,12 @@ for key in DATA:
 '''),
 
     '06f': ('Flow matching', 'flow', '''\
-A learned transport from `N(0, I)` onto `p(u_{n+1} | u_n)` -- no assumption about the shape of
-the conditional, where the Gaussian rung assumes a diagonal normal. Trained by conditional flow
-matching on straight-line paths; sampled by integrating the learned velocity field.
+A learned transport from `N(0, I)` onto `p(u_{n+1} | u_n)`, with no assumption about the shape
+of the conditional, where the Gaussian rung assumes a diagonal normal. Trained by conditional
+flow matching on straight-line paths; sampled by integrating the learned velocity field.
 
-Not tuned, and solving a strictly harder problem on the same budget: a poor number here means
-"not with this budget", not "flow matching does not work".\
+Untuned, and solving a harder problem on the same budget as the other rungs, so a poor number
+here is a statement about this budget rather than about flow matching.\
 ''', '''\
 for key in DATA:
     print(f"--- {key.upper()} ---")
@@ -280,11 +280,11 @@ for key in DATA:
 '''),
 
     '07': ('All seven models', None, '''\
-Every model against truth, on every dataset. **Every number is a median over five seeds and
-the range beside it is the full spread** — where that range covers [0, 1] the median is a
-coin flip rather than a measurement.
+Every model against truth, on every dataset. Every number is a median over five seeds and the
+range beside it is the full spread; where that range covers [0, 1] the median is a coin flip
+rather than a measurement.
 
-The truth row is measured through the same functions the models are, not asserted.\
+`run/ground_truth.py` measures the truth row through the same functions the models go through.\
 ''', '''\
 for key in DATA:
     r = gt['datasets'][key]

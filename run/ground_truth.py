@@ -1,18 +1,19 @@
 """Topic 00 and 01: the ground truth every model inherits, computed once.
 
-This script does three things, and nothing else may recompute them:
+This script does three things, and nothing else in the repository recomputes them:
 
   1. Reproduces the standard results (Strogatz ch. 9). If they do not come out, the
      integrator is wrong and nothing downstream is worth running.
-  2. Generates the frozen datasets -- the deterministic ODE control and the SDE at both
-     the noise level `run/width_sweep.py` selected and the starter notebook's own.
-  3. Measures the reference values every ruler is read against: the attractor scale, the
-     two integrator curves that define "too large" FOR THAT SYSTEM, lambda of the true map,
+  2. Generates the frozen datasets: the deterministic ODE control, and the SDE at both the
+     noise level `run/width_sweep.py` selected and the starter notebook's own.
+  3. Measures the reference values every ruler is read against: the attractor scale, the two
+     integrator curves that define "too large" for that system, lambda of the true map,
      truth's own ensemble spread, and what truth itself scores on every ruler.
 
-The truth row is measured through the same functions the models are, not asserted. It is the
-calibration: `climate` does not read 1.00 at truth and `alive` is a proportion of finite
-rollouts, so a model column is read against the truth row and never against 1.
+`reference_for` puts truth through the same functions the models go through, so the truth row
+is a measurement. It calibrates the model columns: `climate` does not read 1.00 at truth and
+`alive` is a proportion of finite rollouts, so a model column is read against the truth row
+and not against 1.
 
 Writes artifacts/ground_truth.pt (curves) and artifacts/ground_truth.json (scalars, which
 run/report.py and the notebooks read).
@@ -34,19 +35,18 @@ from l63.data import (CONFIG, DT, conditional_width, integrate, make_datasets, l
 from l63.lyapunov import lambda_map, spectrum, true_step
 from l63 import evaluate as E
 
-# The datasets, by the key that names every result file. A key is a (integrator, noise pair):
+# The datasets, by the key that names every result file. A key is an (integrator, noise) pair:
 #
-#   ode     the deterministic control. The experiment runs on stochastic trajectories, so
-#           this is not the experiment -- it is the b -> 0 limit, where p(u_{n+1}|u_n) is a
-#           point mass and a probabilistic model has nothing to recover. It shows that the
-#           SDE comparison is real and not an artefact of the ruler.
+#   ode     the deterministic control: the b -> 0 limit, where p(u_{n+1}|u_n) is a point mass
+#           and a probabilistic model has nothing to recover. The experiment itself runs on
+#           stochastic trajectories; this row separates an SDE result from ruler behaviour.
 #   sde     b = 0.6, chosen from the five-point sweep in run/width_sweep.py: conditional
 #           width 16.9 % of attractor scale, with the attractor itself only 7 % wider than
 #           the deterministic one. 0.3 also passes the sweep's own test; 0.6 is the wider of
 #           the two that still leaves the attractor undistorted.
-#   sde015  the starter notebook's own b. Included because a change of noise level needs a
-#           trained answer and not just a width measurement: at 4.2 % of attractor scale the
-#           claim is that every rung scores the same, and this is what tests it.
+#   sde015  the starter notebook's own b. A width measurement alone does not say what a
+#           trained model does at that width: at 4.2 % of attractor scale the prediction is
+#           that every rung scores the same, and this dataset tests it.
 DATASETS = {
     'ode':    dict(kind='ode', b=0.0),
     'sde':    dict(kind='sde', b=0.6),
@@ -54,8 +54,9 @@ DATASETS = {
 }
 
 # 890, not 900: the recurrent models need 8 warm-up states before they can forecast at all,
-# so 890 is the longest window EVERY model can produce. Same axis for all of them matters
-# more than ten extra steps at the far end, where all the curves are flat anyway.
+# so 890 is the longest window every model can produce. The alternative, 900 for some models
+# and 890 for others, costs a shared x axis to gain ten steps at the far end, where the curves
+# are flat.
 EVAL_STEPS = 890
 LONG_STEPS = 20_000       # long rollouts, for climate / chaos / alive
 N_LONG = 32               # how many of them, for truth and for every model alike
@@ -63,14 +64,14 @@ N_ANCHOR = 5              # independent truth blocks scored on climate, to get i
 
 
 def known_results() -> dict:
-    """The standard results. Each one printed against what the textbook says it is.
+    """The standard results, each printed against the textbook value.
 
-    Two kinds of row, and they are not the same kind of evidence. C+-, div f and rho_H are
-    closed forms evaluated -- they check that the formulas were transcribed correctly and
-    cannot fail for any other reason. The spectrum, its sum against div f, Kaplan-Yorke, the
-    symmetry residual and the Lorenz map's slope are numerical and CAN fail; those are the
-    integrator check. `measured_divergence` promotes div f into the second group by taking
-    the trace of the Jacobian at real states rather than quoting the constant.
+    Two kinds of row. C+-, div f and rho_H are closed forms evaluated: they check that the
+    formulas were transcribed correctly and cannot fail for any other reason. The spectrum,
+    its sum against div f, Kaplan-Yorke, the symmetry residual and the Lorenz map's slope are
+    numerical and can fail, so those are the integrator check. `measured_divergence` puts div f
+    in the second group as well, by taking the trace of the Jacobian at real states instead of
+    quoting the constant.
     """
     out = {}
     o, cp, _ = K.fixed_points()
@@ -92,7 +93,7 @@ def known_results() -> dict:
     out['lorenz_map_peaks'] = len(zn)
     out['lorenz_map_min_slope'] = float(abs(slopes).min())
 
-    # trace(Df) at 2000 real attractor states: div f as a measurement, not as a constant
+    # trace(Df) at 2000 real attractor states, so div f is measured as well as quoted
     tr = K.measured_divergence(long[::800])
     out['divergence_measured'] = float(tr.mean())
     out['divergence_measured_max_dev'] = float((tr - K.divergence()).abs().max())
@@ -113,17 +114,16 @@ def known_results() -> dict:
 
 
 def truth_rollouts(d, steps: int, n: int, seed: int = 0) -> torch.Tensor:
-    """`n` long TRUE trajectories in raw units, generated exactly like a model's rollout.
+    """`n` long true trajectories in raw units, generated the way a model's rollout is.
 
-    Same length and same starting states as the models get -- so `alive`, `lobe` and
-    `climate` can be measured on truth through the identical function a model goes through.
-    Without this the truth row is three hardcoded 1.00s, which is an assertion and not a
-    calibration.
+    Same length and same starting states as the models get, so `alive`, `lobe` and `climate`
+    can be measured on truth through the same function a model goes through. The alternative
+    is hardcoding 1.00 in the truth row for each of them.
 
-    This needs more rollouts than the evaluation set holds (the climate reference needs a
-    pool plus several held-out blocks), so past the first 128 the starts are fresh draws put
-    on the attractor by the same spin-up `gen_data` uses. Taking `d.eval[:n, 0]` instead
-    would silently return 128 rollouts and halve every sample this feeds.
+    This needs more rollouts than the evaluation set holds: the climate reference needs a pool
+    plus several held-out blocks. Past the first 128 the starts are fresh draws put on the
+    attractor by the same spin-up `gen_data` uses. `d.eval[:n, 0]` instead would return 128
+    rollouts without error and halve every sample this feeds.
     """
     z0 = d.raw(d.eval[:, 0])
     with torch.random.fork_rng():
@@ -145,26 +145,25 @@ def reference_for(key: str, lam_true: float) -> tuple[dict, dict]:
     d = make_datasets(seed=0, kind=kind, b=b)
     print(f'\n[{key}] {d}')
 
-    # The floor and the bar, matched to the system that made the data. On the SDE the floor
-    # is realisation-vs-realisation -- irreducible, and nothing to do with the step size --
-    # and the bar shares its Brownian path with the fine reference so it measures method and
-    # not noise. Using the deterministic pair here makes every SDE model read "loses to Euler
-    # at step 1", which is an artefact of the reference, not a result.
+    # The floor and the bar, matched to the system that made the data. On the SDE the floor is
+    # realisation against realisation: irreducible, and independent of step size. The bar
+    # shares its Brownian path with the fine reference, so it measures method rather than
+    # noise. The deterministic pair used here instead makes every SDE model read "loses to
+    # Euler at step 1", which is a property of the reference and not of the model.
     z0 = d.raw(d.eval[:, 0])
     floor_c, bar_c = references(kind, z0, EVAL_STEPS, d.dt, b=b)
     floor, bar = E.median_curve(floor_c), E.median_curve(bar_c)
 
-    # Truth, generated exactly the way a model's rollout is: same count, same length, same
-    # starting states. The evaluation set is NOT usable as the climate reference: 901 steps
-    # is 20 Lyapunov times, far too short to sample the invariant measure, and scoring
-    # 500-tau model rollouts against it penalises a model for mixing properly.
+    # Truth, generated the way a model's rollout is: same count, same length, same starting
+    # states. The evaluation set does not work as the climate reference: 901 steps is 20
+    # Lyapunov times, too short to sample the invariant measure, and scoring 500-tau model
+    # rollouts against it penalises a model for mixing.
     #
-    # The first 2 * N_LONG are the frozen denominator pool every model is scored against.
-    # The rest are N_ANCHOR independent held-out blocks, each the size of one model's
-    # rollout set, scored through the identical call a model gets. That is the anchor -- and
-    # it has to be several blocks, because ONE of them is not an anchor, it is one draw from
-    # a distribution with ~50 % spread. Quoting a single draw makes this ruler look biased
-    # (0.565) when it is unbiased and merely coarse.
+    # The first 2 * N_LONG are the frozen denominator pool every model is scored against. The
+    # rest are N_ANCHOR independent held-out blocks, each the size of one model's rollout set,
+    # scored through the same call a model gets. Several blocks rather than one: a single block
+    # is one draw from a distribution with ~50 % spread, and one such draw reads 0.565, which
+    # looks like bias in a ruler that is unbiased and coarse.
     long_truth = truth_rollouts(d, LONG_STEPS, (2 + N_ANCHOR) * N_LONG)
     climate_ref = long_truth[:2 * N_LONG]
 
@@ -180,14 +179,14 @@ def reference_for(key: str, lam_true: float) -> tuple[dict, dict]:
     truth_alive = E.alive_frac(fresh, d.scale)
     truth_lobe = float(E.lobe_frac(fresh, d.dt, lam_true).mean())
 
-    # the attractor's own scale, from a well-mixed sample, beside the evaluation set's.
-    # The rulers use the evaluation set's -- that is the data the error is measured on --
-    # but the two differ by ~5 %, so both are reported.
+    # The attractor's own scale, from a well-mixed sample, beside the evaluation set's. The
+    # rulers use the evaluation set's, since that is the data the error is measured on; the two
+    # differ by ~5 %, so both are reported.
     scale_long = float(long_truth.reshape(-1, 3).std(dim=0).norm())
 
-    # and truth's spread ruler against ITSELF: a second, independent truth ensemble scored
-    # through spread_ratio's own arithmetic. 1.00 is the definition; this is the measurement,
-    # and the gap is the ruler's noise at this ensemble size.
+    # Truth's spread ruler against itself: a second, independent truth ensemble scored through
+    # spread_ratio's own arithmetic. The definition gives 1.00, and the gap between that and
+    # this number is the ruler's noise at this ensemble size.
     truth_spread = float('nan')
     if lead > 0:
         second, _ = E.truth_spread(d, seed=1)
@@ -221,8 +220,8 @@ def reference_for(key: str, lam_true: float) -> tuple[dict, dict]:
         print(f'  conditional width      {width:.3f} = {scal["conditional_width_pct"]:.1f}% of scale')
         print(f'  spread read at lead    {lead} steps')
 
-    # climate_ref travels with the curves because every model has to be scored against the
-    # SAME truth sample -- regenerating it per job would put ruler noise in every column.
+    # climate_ref travels with the curves so that every model is scored against the same truth
+    # sample. Regenerating it per job would put ruler noise in every column.
     return scal, dict(floor=floor, bar=bar, truth_sd=truth_sd, climate_ref=climate_ref)
 
 
@@ -246,9 +245,9 @@ def main() -> None:
         print('=== the standard results (Strogatz ch. 9) ===')
         known = known_results()
 
-        # lambda of the TRUE MAP at dt, through the same estimator every model gets, at the
-        # same n_steps. Using the model's own estimator rather than a literature constant is
-        # what makes that ratio like-for-like.
+        # lambda of the true map at dt, through the same estimator every model gets, at the
+        # same n_steps. The estimator rather than a literature constant, so the `chaos` ratio
+        # compares like with like.
         print('\n=== lambda of the true map, same estimator the models get ===')
         z = solve_ode(lorenz, torch.randn(64, 3) * 10., 0., 5., 20_000)[-1]
         lm = lambda_map(true_step(DT), z, DT, n_steps=8000)

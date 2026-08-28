@@ -1,22 +1,22 @@
 """Assemble every result into the standing figures and one summary the Typst sources read.
 
 `artifacts/results/*.json` is one row per (model, dataset, seed). This aggregates them over
-seeds, banks the figures per topic, and writes `artifacts/summary.json` -- which is the ONLY
-number source the .typ files read. No number is typed into a .typ file by hand.
+seeds, banks the figures per topic, and writes `artifacts/summary.json`, the only number
+source the .typ files read. No number is typed into a .typ file by hand.
 
-SEEDS. Every ruler is reported as a median over the five seeds with its full range, `horizon`
-included. One seed is not enough: across the ladder a single seed lands between 45 % and
+Seeds. Every ruler is reported as a median over the five seeds with its full range, `horizon`
+included. One seed does not cover it: across the ladder a single seed lands between 45 % and
 284 % of its own median, and for two rungs seed 0 is the best of the five. The seed-0 value
-is still written out as `horizon_s0` so the figures, which show one model, can be checked
-against the row.
+is still written out as `horizon_s0`, so a figure, which shows one model, can be checked
+against its row.
 
-FIGURES. Each topic's figures come from the seed whose horizon is closest to the median, not
-from seed 0, so the picture and the table describe the same model.
+Figures. Each topic's figures come from the seed whose horizon is closest to the median
+rather than from seed 0, so the picture and the table describe the same model.
 
-CONTROLS. Topic 03 at k = 1 is topic 02's loss through the rollout code path -- the same
-weights to within float summation order. Scoring both and printing the gap gives every ruler
-a numerical noise floor that owes nothing to seeds, which bounds how small a difference this
-suite can resolve.
+Controls. Topic 03 at k = 1 is topic 02's loss through the rollout code path: the same weights
+to within float summation order. Scoring both and printing the gap gives every ruler a
+numerical noise floor independent of seeds, which bounds how small a difference this suite can
+resolve.
 
 Run:  PYTHONPATH=. python run/report.py            [--topic 02] [--no-figures]
 """
@@ -57,9 +57,9 @@ def clean(o):
     """NaN and +-inf to null.
 
     Python's json.dump writes bare `NaN`, which is not valid JSON and which Typst does not
-    parse -- so an undefined ruler silently breaks the whole .typ build instead of rendering
-    as a dash. Undefined columns are real here (`spread` on the ODE), so they have to survive
-    the round trip as null. The notebooks call this too, so they print "—" instead of "nan".
+    parse, so an undefined ruler breaks the whole .typ build instead of rendering as a dash.
+    Undefined columns occur here (`spread` on the ODE) and have to survive the round trip as
+    null. The notebooks call this too, so they print "—" instead of "nan".
     """
     if isinstance(o, float):
         return None if (o != o or o in (float('inf'), float('-inf'))) else o
@@ -94,7 +94,7 @@ def agg(rows: list[dict], key: str) -> dict:
 
 
 def median_seed(rows: list[dict]) -> int:
-    """The seed whose horizon is nearest the median -- the one the figures should show."""
+    """The seed whose horizon is nearest the median; the figures show this one."""
     med = np.median([r['horizon'] for r in rows])
     return min(rows, key=lambda r: (abs(r['horizon'] - med), r['seed']))['seed']
 
@@ -112,10 +112,10 @@ def summarise(rows: list[dict]) -> dict:
         rep = median_seed(rs)
         r_rep = next(r for r in rs if r['seed'] == rep)
 
-        # A job records only the kwargs it was CONSTRUCTED with, so a default never appears --
+        # A job records only the kwargs it was constructed with, so a default never appears:
         # `LeadTimePredictor()` leaves s_max out entirely. The checkpoint is self-describing,
-        # so this recovers the model's own resolved config from it rather than duplicating it
-        # into the job table, where it would be a second copy to keep in step.
+        # so this reads the model's own resolved config from it instead of duplicating the
+        # defaults into the job table, where they would be a second copy to keep in step.
         cfg = {}
         try:
             cfg = dict(getattr(load_model(f'{topic}_{label}_{data}_s{rep}')[0], 'cfg', {}))
@@ -139,8 +139,8 @@ def summarise(rows: list[dict]) -> dict:
         entry['horizon_seeds'] = entry['horizon']         # alias, for readers of the old key
 
         if 'mean_only' in s0:
-            # the controlled test gets the same five seeds as everything else -- it is read
-            # on `alive` and `climate`, the two most seed-unstable columns in the suite
+            # the controlled test gets the same five seeds as everything else; it is read on
+            # `alive` and `climate`, the two most seed-unstable columns in the suite
             mo = [r['mean_only'] for r in rs if 'mean_only' in r]
             entry['mean_only'] = {k: agg(mo, k) for k in RULERS if k in mo[0]}
             for k in ('sigma_raw', 'residual_raw', 'sigma_over_residual'):
@@ -156,12 +156,12 @@ def summarise(rows: list[dict]) -> dict:
 def controls(rows: list[dict]) -> dict:
     """The k = 1 control, per seed and per dataset: the suite's numerical noise floor.
 
-    `Predictor` and `RolloutPredictor(k=1)` are the same model and the same loss. They are not
-    bit-identical only because one reshapes to (N, 3) and the other keeps (batch, T, 3), so
-    the sums happen in a different order; after 3000 Adam steps the weights differ by ~7e-7.
-    Whatever a ruler does with that difference is what it cannot resolve, before any seed,
-    any architecture and any training choice enters. Free to compute, since both rows already
-    exist, and it bounds any claim that two models differ.
+    `Predictor` and `RolloutPredictor(k=1)` are the same model and the same loss. They differ
+    only because one reshapes to (N, 3) and the other keeps (batch, T, 3), so the sums happen
+    in a different order; after 3000 Adam steps the weights differ by ~7e-7. Whatever a ruler
+    does with that difference is what it cannot resolve, before any seed, architecture or
+    training choice enters. Both rows already exist, so this costs nothing to compute, and it
+    bounds any claim that two models differ.
     """
     by = {(r['topic'], r['label'], r.get('data', r.get('kind')), r['seed']): r for r in rows}
     out = {}
@@ -224,8 +224,8 @@ def figures_for(topic: str, key: str, gt: dict, curves: dict, summary: dict) -> 
                         label=TITLES[topic])
 
     # No `e` figure. The rulers go into a Typst table instead, because a table can show the
-    # median AND its range across five seeds -- and the range is the part that decides whether
-    # two models differ at all. `plots.ruler_figure` remains available for notebook use.
+    # median together with its range across five seeds, and the range is what decides whether
+    # two models differ. `plots.ruler_figure` remains available for notebook use.
 
 
 def figures_head_to_head(gt: dict, summary: dict) -> None:
@@ -233,9 +233,9 @@ def figures_head_to_head(gt: dict, summary: dict) -> None:
     for key, ref in gt['datasets'].items():
         d = make_datasets(seed=0, kind=ref['kind'], b=ref['b'])
 
-        # the truth row, measured through the same functions the models go through -- not
-        # three hardcoded 1.00s. climate does not read 1.00 at truth, and alive is a
-        # proportion of finite rollouts, so both are calibration and not targets.
+        # the truth row, measured through the same functions the models go through rather than
+        # entered as three hardcoded 1.00s. climate does not read 1.00 at truth, and alive is a
+        # proportion of finite rollouts, so both are calibration values rather than targets.
         rows = {'truth': dict(horizon=ref['floor_steps'],
                               spread=ref.get('truth_spread', float('nan')),
                               climate=ref['truth_climate'], climate_vs_truth=1.0,
